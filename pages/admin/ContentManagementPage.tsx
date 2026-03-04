@@ -1,4 +1,13 @@
 import {
+    collection,
+    deleteDoc,
+    doc,
+    onSnapshot,
+    serverTimestamp,
+    setDoc,
+    updateDoc,
+} from "firebase/firestore";
+import {
     AlertCircle,
     CheckCircle,
     ChevronRight,
@@ -8,6 +17,7 @@ import {
     EyeOff,
     Filter,
     FolderPlus,
+    Hash,
     Layers,
     Plus,
     Power,
@@ -20,7 +30,7 @@ import {
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import AdminLayout from "../../layouts/AdminLayout";
-import api from "../../services/api";
+import { db } from "../../services/firebase";
 import { Course } from "../../types";
 
 interface Category {
@@ -99,7 +109,7 @@ const ContentManagementPage: React.FC = () => {
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
   const [editingCourseData, setEditingCourseData] = useState({
     category: "",
-    certificatePrice: 0,
+    relevanceScore: 80,
   });
 
   // New Course Form State
@@ -107,17 +117,8 @@ const ContentManagementPage: React.FC = () => {
     title: "",
     instructor: "",
     category: "",
-    certificatePrice: 0,
+    relevanceScore: 80,
   });
-
-  // Helper para mostrar toast
-  const showToast = (
-    message: string,
-    type: "success" | "error" = "success",
-  ) => {
-    setToast({ type, message });
-    setTimeout(() => setToast(null), 3000);
-  };
 
   // Função auxiliar para recalcular contagens
   const updateCategoryCounts = (
@@ -128,42 +129,130 @@ const ContentManagementPage: React.FC = () => {
       ...cat,
       count: coursesList.filter((c) => c.category === cat.name).length,
     }));
-    return updated;
+    return updated.sort((a, b) => b.count - a.count);
   };
 
-  // Load courses and categories from API
+  // Helper para mostrar toast
+  const showToast = (
+    message: string,
+    type: "success" | "error" = "success",
+  ) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  // Sync with Firebase - Load all courses AND categories in real-time
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        // Load courses
-        const coursesResponse = await api.get("/courses");
-        const coursesList = (coursesResponse.data || []).map(
-          (data: any) =>
-            ({
-              id: data.id,
-              title: data.title || "Sem título",
-              instructor: data.instructor || "Sem tutor",
-              category: data.category || "Geral",
-              rating: data.rating || 0,
-              reviewCount: data.reviewCount || 0,
-              duration: data.duration || "0h",
-              relevanceScore: data.relevanceScore || 80,
-              imageUrl: data.imageUrl || "",
-              isActive: data.isActive !== false,
-              badgeColor: data.badgeColor || "bg-stone-100 text-stone-800",
-              approvalStatus: data.approvalStatus || "pending",
-            }) as Course,
-        );
+    const coursesRef = collection(db, "courses");
+    const categoriesRef = collection(db, "categories");
+
+    // Listener de cursos
+    const unsubscribeCourses = onSnapshot(
+      coursesRef,
+      (snapshot) => {
+        const coursesList: Course[] = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          coursesList.push({
+            id: doc.id,
+            title: data.title || "Sem título",
+            instructor: data.instructor || "Sem instrutor",
+            category: data.category || "Geral",
+            rating: data.rating || 0,
+            reviewCount: data.reviewCount || 0,
+            duration: data.duration || "0h",
+            relevanceScore: data.relevanceScore || 80,
+            imageUrl: data.imageUrl || "",
+            isActive: data.isActive !== false,
+            badgeColor: data.badgeColor || "bg-stone-100 text-stone-800",
+            approvalStatus: data.approvalStatus || "pending",
+          } as Course);
+        });
 
         setCourses(coursesList);
-        setCategories(updateCategoryCounts(coursesList, INITIAL_CATEGORIES));
-      } catch (error) {
-        console.error("Erro ao carregar dados:", error);
-        showToast("Erro ao carregar cursos", "error");
-      }
-    };
 
-    loadData();
+        // Recalcular contagens com categorias atuais
+        setCategories((prevCategories) => {
+          return updateCategoryCounts(coursesList, prevCategories);
+        });
+      },
+      (error) => {
+        console.error("Erro ao carregar cursos:", error);
+      },
+    );
+
+    // Listener de categorias
+    const unsubscribeCategories = onSnapshot(
+      categoriesRef,
+      (snapshot) => {
+        const categoriesList: Category[] = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          categoriesList.push({
+            id: doc.id,
+            name: data.name || "Sem nome",
+            count: 0, // Será recalculado logo abaixo
+            color: data.color || "bg-slate-100 text-slate-700",
+          } as Category);
+        });
+
+        // Se há categorias do Firebase, usar elas; senão usar padrão
+        if (categoriesList.length > 0) {
+          setCategories((prevCategories) => {
+            // Usa os cursos já carregados do estado
+            return updateCategoryCounts(courses, categoriesList);
+          });
+        } else {
+          // Usar categorias iniciais
+          setCategories((prevCategories) => {
+            return updateCategoryCounts(courses, INITIAL_CATEGORIES);
+          });
+        }
+      },
+      (error) => {
+        console.error("Erro ao carregar categorias:", error);
+      },
+    );
+
+    return () => {
+      unsubscribeCourses();
+      unsubscribeCategories();
+    };
+  }, []);
+
+  // Listener para solicitações de exclusão
+  useEffect(() => {
+    const deletionRequestsRef = collection(db, "courseDeletionRequests");
+
+    const unsubscribeDeletionRequests = onSnapshot(
+      deletionRequestsRef,
+      (snapshot) => {
+        const requests: CourseDeletionRequest[] = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          requests.push({
+            id: doc.id,
+            courseId: data.courseId,
+            courseTitle: data.courseTitle,
+            instructorId: data.instructorId,
+            instructorName: data.instructorName,
+            status: data.status || "pending",
+            requestedAt: data.requestedAt?.toDate?.() || new Date(),
+            approvedAt: data.approvedAt?.toDate?.() || null,
+            approvedBy: data.approvedBy || null,
+            rejectionReason: data.rejectionReason || null,
+          });
+        });
+        setAllDeletionRequests(requests);
+        // Filtrar apenas pendentes para o estado anterior (compatibilidade)
+        setDeletionRequests(requests.filter((r) => r.status === "pending"));
+      },
+      (error) => {
+        console.error("Erro ao carregar solicitações de exclusão:", error);
+      },
+    );
+
+    return () => unsubscribeDeletionRequests();
   }, []);
 
   const updateFirebaseCourses = (updatedList: Course[]) => {
@@ -176,16 +265,20 @@ const ContentManagementPage: React.FC = () => {
     courseTitle: string,
   ) => {
     try {
-      // Delete course via API
-      await api.delete(`/courses/${courseId}`);
+      // Deletar o curso
+      await deleteDoc(doc(db, "courses", courseId));
+
+      // Atualizar status da solicitação
+      await updateDoc(doc(db, "courseDeletionRequests", requestId), {
+        status: "approved",
+        approvedAt: serverTimestamp(),
+        approvedBy: "admin",
+      });
 
       showToast(
         `✅ Curso "${courseTitle}" foi excluído permanentemente!`,
         "success",
       );
-
-      // Remove from local state
-      setCourses(courses.filter((c) => c.id !== courseId));
       setExpandedDeleteRequest(null);
       setConfirmationModal(null);
     } catch (error) {
@@ -275,15 +368,15 @@ const ContentManagementPage: React.FC = () => {
         alert(`✅ Categoria "${newCatName}" atualizada com sucesso!`);
         setEditingCategoryId(null);
       } else {
-        // Criar nova categoria - salvar em localStorage
-        const newCat: Category = {
-          id: `cat_${Date.now()}`,
+        // Criar nova categoria
+        const newDocRef = doc(collection(db, "categories"));
+        await setDoc(newDocRef, {
           name: newCatName,
           description: newCatDescription,
-          count: 0,
           color: "bg-slate-100 text-slate-700",
-        };
-        setCategories([...categories, newCat]);
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
         console.log(`✓ Categoria "${newCatName}" foi criada com sucesso!`);
         alert(`✅ Categoria "${newCatName}" criada com sucesso!`);
       }
@@ -302,8 +395,8 @@ const ContentManagementPage: React.FC = () => {
       const categoryToDelete = categories.find((c) => c.id === id);
       const categoryName = categoryToDelete?.name || "Categoria";
 
-      // Remove from local state
-      setCategories(categories.filter((c) => c.id !== id));
+      // Deletar a categoria
+      await deleteDoc(doc(db, "categories", id));
 
       console.log(`✓ Categoria "${categoryName}" foi removida.`);
       alert(`✅ Categoria "${categoryName}" removida com sucesso!`);
@@ -337,11 +430,9 @@ const ContentManagementPage: React.FC = () => {
       if (!confirmDelete) return;
 
       for (const cat of emptyCategories) {
+        await deleteDoc(doc(db, "categories", cat.id));
         console.log(`✓ Categoria vazia removida: "${cat.name}"`);
       }
-
-      // Remove empty categories from local state
-      setCategories(categories.filter((c) => c.count > 0));
 
       alert(
         `✅ ${emptyCategories.length} categoria(s) vazia(s) foram removidas com sucesso!`,
@@ -357,52 +448,50 @@ const ContentManagementPage: React.FC = () => {
     if (!newCourse.title.trim()) return;
 
     try {
-      // Create course via API
-      const response = await api.post("/courses", {
+      // Criar documento no Firebase
+      const newDocRef = doc(collection(db, "courses"));
+      await updateDoc(newDocRef, {
         title: newCourse.title,
         instructor: newCourse.instructor || "UEM Cursos online Tutor",
         category: newCourse.category,
         rating: 5.0,
         reviewCount: 0,
         duration: "0h",
-        relevanceScore: 0,
-        certificatePrice: Number(newCourse.certificatePrice) || 0,
+        relevanceScore: Number(newCourse.relevanceScore),
         imageUrl: `https://picsum.photos/seed/${Math.random()}/800/600`,
         isActive: true,
         badgeColor: "bg-stone-100 text-stone-800",
         status: "Rascunho",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
 
-      showToast("✅ Curso criado com sucesso!", "success");
       setIsCourseModalOpen(false);
       setNewCourse({
         title: "",
         instructor: "",
         category: "",
-        certificatePrice: 0,
+        relevanceScore: 80,
       });
     } catch (error) {
       console.error("Erro ao criar curso:", error);
-      showToast("Erro ao criar curso", "error");
     }
   };
 
   const handleDeleteCourse = async (id: string) => {
     try {
-      await api.delete(`/courses/${id}`);
+      await deleteDoc(doc(db, "courses", id));
       setDeleteConfirmId(null);
-      setCourses(courses.filter((c) => c.id !== id));
-      showToast("Curso removido com sucesso", "success");
     } catch (error) {
       console.error("Erro ao deletar curso:", error);
-      showToast("Erro ao remover curso", "error");
     }
   };
 
   const handleApproveCourse = async (courseId: string, courseTitle: string) => {
     try {
-      await api.put(`/courses/${courseId}`, {
+      await updateDoc(doc(db, "courses", courseId), {
         approvalStatus: "approved",
+        updatedAt: serverTimestamp(),
       });
       showToast(
         `✅ Curso "${courseTitle}" foi aprovado com sucesso!`,
@@ -461,7 +550,7 @@ const ContentManagementPage: React.FC = () => {
     setEditingCourseId(course.id);
     setEditingCourseData({
       category: course.category || "",
-      certificatePrice: course.certificatePrice || 0,
+      relevanceScore: course.relevanceScore || 80,
     });
   };
 
@@ -472,7 +561,7 @@ const ContentManagementPage: React.FC = () => {
     try {
       await updateDoc(doc(db, "courses", editingCourseId), {
         category: editingCourseData.category,
-        certificatePrice: Number(editingCourseData.certificatePrice),
+        relevanceScore: Number(editingCourseData.relevanceScore),
         updatedAt: serverTimestamp(),
       });
 
@@ -622,7 +711,7 @@ const ContentManagementPage: React.FC = () => {
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                   <input
                     type="text"
-                    placeholder="Pesquisar por título do curso ou nome do tutor..."
+                    placeholder="Pesquisar por título do curso ou nome do instrutor..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full pl-12 pr-4 h-12 bg-white border border-slate-200 rounded-2xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-4 focus:ring-brand-green/5 focus:border-brand-green transition-all"
@@ -647,6 +736,9 @@ const ContentManagementPage: React.FC = () => {
                       </th>
                       <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">
                         Status
+                      </th>
+                      <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
+                        Score
                       </th>
                       <th className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">
                         Ações
@@ -684,7 +776,7 @@ const ContentManagementPage: React.FC = () => {
                                   {course.title}
                                 </p>
                                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">
-                                  Tutor: {course.instructor}
+                                  Instrutor: {course.instructor}
                                 </p>
                               </div>
                             </div>
@@ -699,6 +791,21 @@ const ContentManagementPage: React.FC = () => {
                             >
                               {course.isActive ? "Ativo" : "Inativo"}
                             </span>
+                          </td>
+                          <td className="px-8 py-6 text-center">
+                            <div className="flex flex-col items-center">
+                              <span
+                                className={`text-sm font-black ${course.isActive ? "text-slate-700" : "text-slate-300"}`}
+                              >
+                                {course.relevanceScore}%
+                              </span>
+                              <div className="w-12 h-1 bg-slate-100 rounded-full mt-1 overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${course.isActive ? "bg-brand-green" : "bg-slate-300"}`}
+                                  style={{ width: `${course.relevanceScore}%` }}
+                                ></div>
+                              </div>
+                            </div>
                           </td>
                           <td className="px-8 py-6 text-right">
                             <div className="flex items-center justify-end gap-2 transition-opacity">
@@ -897,7 +1004,7 @@ const ContentManagementPage: React.FC = () => {
 
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
-                    Nome do Tutor
+                    Nome do Instrutor
                   </label>
                   <div className="relative">
                     <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 w-4 h-4" />
@@ -938,16 +1045,17 @@ const ContentManagementPage: React.FC = () => {
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1">
-                      💰 Preço do Certificado (MZM)
+                      <Hash size={10} /> Score de Relevância
                     </label>
                     <input
                       type="number"
                       min="0"
-                      value={newCourse.certificatePrice || 0}
+                      max="100"
+                      value={newCourse.relevanceScore}
                       onChange={(e) =>
                         setNewCourse({
                           ...newCourse,
-                          certificatePrice: Number(e.target.value),
+                          relevanceScore: Number(e.target.value),
                         })
                       }
                       className="w-full px-5 h-12 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-900 outline-none focus:bg-white focus:border-brand-green"
@@ -1050,7 +1158,7 @@ const ContentManagementPage: React.FC = () => {
                 </h2>
                 <p className="text-xs text-slate-400 mt-2">
                   Gerencie as solicitações de exclusão de cursos feitas pelos
-                  tutores
+                  instrutores
                 </p>
               </div>
             </div>
@@ -1104,7 +1212,7 @@ const ContentManagementPage: React.FC = () => {
                           {request.courseTitle}
                         </h3>
                         <p className="text-xs text-slate-500">
-                          Tutor:{" "}
+                          Instrutor:{" "}
                           <span className="font-bold text-slate-700">
                             {request.instructorName}
                           </span>
@@ -1279,20 +1387,25 @@ const ContentManagementPage: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-2">
-                    💰 Preço do Certificado (MZM)
+                    Score de Relevância: {editingCourseData.relevanceScore}%
                   </label>
                   <input
-                    type="number"
+                    type="range"
                     min="0"
-                    value={editingCourseData.certificatePrice || 0}
+                    max="100"
+                    value={editingCourseData.relevanceScore}
                     onChange={(e) =>
                       setEditingCourseData({
                         ...editingCourseData,
-                        certificatePrice: Number(e.target.value),
+                        relevanceScore: Number(e.target.value),
                       })
                     }
-                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:bg-white focus:border-brand-green"
+                    className="w-full h-2 bg-slate-200 rounded-full appearance-none cursor-pointer accent-brand-green"
                   />
+                  <div className="flex justify-between text-xs text-slate-500 font-bold mt-2">
+                    <span>0%</span>
+                    <span>100%</span>
+                  </div>
                 </div>
 
                 <div className="flex gap-3 pt-4">

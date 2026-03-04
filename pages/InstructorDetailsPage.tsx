@@ -306,7 +306,7 @@ const InstructorDetailsPage: React.FC = () => {
                   </p>
                 </div>
                 <div>
-                  <p className="text-gray-600 mb-1">ID do Tutor</p>
+                  <p className="text-gray-600 mb-1">ID do Instrutor</p>
                   <p className="font-mono text-xs text-gray-500 break-all">
                     {tutor.uid}
                   </p>

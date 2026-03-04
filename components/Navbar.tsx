@@ -4,13 +4,14 @@ import { Link } from "react-router-dom";
 import { NAV_LINKS } from "../constants";
 import { useAuth } from "../contexts/AuthContext";
 import { useBranding } from "../contexts/BrandingContext";
+import { auth } from "../services/firebase";
 import { DEFAULT_DASHBOARD, isValidRole } from "../utils/routeProtection";
 
 const Navbar: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const { profile, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
   const { branding } = useBranding();
-  const isAuthenticated = !!profile;
+  const isAuthenticated = !!(user || auth.currentUser);
 
   /**
    * Obtém o link correto para o dashboard conforme o role

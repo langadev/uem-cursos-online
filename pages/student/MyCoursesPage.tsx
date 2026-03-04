@@ -1,26 +1,27 @@
-﻿import { Award, MoreVertical, PlayCircle, Search } from "lucide-react";
-import React, { useState } from "react";
+﻿import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { Award, MoreVertical, PlayCircle, Search } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import StudentLayout from "../../layouts/StudentLayout";
+import { db } from "../../services/firebase";
 import { EnrolledCourse } from "../../types";
 
 // Tipagem para cartões derivados de inscrições
 type CourseCard = EnrolledCourse & { lastAccessed?: string };
 
 const MyCoursesPage: React.FC = () => {
-  const { profile } = useAuth();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<
     "all" | "in-progress" | "completed"
   >("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [items] = useState<CourseCard[]>([]);
+  const [items, setItems] = useState<CourseCard[]>([]);
 
-  // TODO: Implementar carregamento de cursos via MySQL API
-
-  React.useEffect(() => {
-    // Placeholder para carregamento a partir de MySQL
-    if (!profile?.uid) {
+  useEffect(() => {
+    if (!user?.uid) {
       console.log("❌ [MyCoursesPage] Usuário não autenticado");
+      setItems([]);
       return;
     }
 

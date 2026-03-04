@@ -207,7 +207,7 @@ const QuestionsPage: React.FC = () => {
                         >
                           <div className="text-xs text-slate-400 mb-1">
                             {a.author_role === "instructor"
-                              ? "Tutor"
+                              ? "Instrutor"
                               : "Formando"}{" "}
                             •{" "}
                             {a.createdAt?.toDate
@@ -233,7 +233,8 @@ const QuestionsPage: React.FC = () => {
                     ></textarea>
                     <div className="flex justify-between items-center">
                       <p className="text-[10px] text-slate-400">
-                        Respostas rápidas ajudam a manter a nota de tutor alta.
+                        Respostas rápidas ajudam a manter a nota de instrutor
+                        alta.
                       </p>
                       <button className="flex items-center gap-2 bg-brand-green text-white font-bold px-8 py-2.5 rounded-xl hover:bg-brand-dark transition-all shadow-lg shadow-green-900/10">
                         <Send size={16} /> Enviar Resposta

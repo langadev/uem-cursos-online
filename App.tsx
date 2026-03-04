@@ -6,6 +6,33 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import { AuthProvider } from "./contexts/AuthContext";
 import { BrandingProvider } from "./contexts/BrandingContext";
 
+// Expor Firebase ao console para debugging
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { auth, db } from "./services/firebase";
+(window as any).debugFirebase = {
+  db,
+  auth,
+  getDocs,
+  collection,
+  query,
+  where,
+  runDiagnostic: async () => {
+    const uid = auth.currentUser?.uid;
+    console.log("🔍 [DEBUG] UID:", uid);
+    if (!uid) {
+      console.log("❌ Não autenticado!");
+      return;
+    }
+    const enrolls = await getDocs(
+      query(collection(db, "enrollments"), where("user_uid", "==", uid)),
+    );
+    const courses = await getDocs(collection(db, "courses"));
+    console.log(`📋 Suas inscrições: ${enrolls.size}`);
+    enrolls.forEach((d) => console.log("   →", d.id, d.data()));
+    console.log(`📚 Total de cursos: ${courses.size}`);
+  },
+};
+
 // Pages
 import AboutPage from "./pages/AboutPage";
 import CategoriesPage from "./pages/CategoriesPage";

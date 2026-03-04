@@ -371,9 +371,9 @@ const CourseDetailsPage: React.FC = () => {
               </div>
               <span className="hidden sm:inline text-slate-500">|</span>
               <div className="flex items-center gap-1 text-slate-100">
-                <span className="text-slate-300">Tutor:</span>
+                <span className="text-slate-300">Instrutor:</span>
                 <span className="underline decoration-yellow-400/50 underline-offset-4 font-semibold">
-                  {course?.instructor || "Tutor"}
+                  {course?.instructor || "Instrutor"}
                 </span>
               </div>
               <span className="hidden sm:inline text-slate-500">|</span>
@@ -524,20 +524,20 @@ const CourseDetailsPage: React.FC = () => {
             {/* Instructor */}
             <section className="bg-white border-t border-gray-100 pt-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                Seu Tutor
+                Seu Instrutor
               </h2>
               <div className="flex gap-6 items-start">
                 <img
                   src={
                     instructorData?.avatar_url ||
-                    `https://ui-avatars.com/api/?name=${encodeURIComponent(course?.instructor || "Tutor")}&background=0e7038&color=fff&size=128`
+                    `https://ui-avatars.com/api/?name=${encodeURIComponent(course?.instructor || "Instrutor")}&background=0e7038&color=fff&size=128`
                   }
-                  alt={course?.instructor || "Tutor"}
+                  alt={course?.instructor || "Instrutor"}
                   className="w-16 h-16 rounded-full object-cover border-4 border-gray-50 shadow-sm"
                 />
                 <div>
                   <h3 className="text-xl font-bold text-gray-900 mb-1">
-                    {course?.instructor || "Tutor"}
+                    {course?.instructor || "Instrutor"}
                   </h3>
                   <p className="text-brand-green font-medium text-sm mb-3">
                     {instructorData?.profession ||
@@ -720,7 +720,12 @@ const AccordionItem: React.FC<{
   details: string;
   isOpen?: boolean;
   lessons?: any[];
-}> = ({ title, details, isOpen = false, lessons = [] as any[] }) => {
+}> = ({
+  title,
+  details,
+  isOpen = false,
+  lessons = [] as any[],
+}) => {
   const [open, setOpen] = React.useState(isOpen);
   React.useEffect(() => {
     setOpen(isOpen);

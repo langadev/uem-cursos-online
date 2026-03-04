@@ -1,25 +1,29 @@
 import {
-    AlertTriangle,
-    AppWindow,
-    Building2,
-    CheckCircle2,
-    CreditCard,
-    Database,
-    Globe,
-    Image as ImageIcon,
-    Palette,
-    RotateCcw,
-    Save,
-    Server,
-    Shield,
-    X,
+  AlertTriangle,
+  AppWindow,
+  Building2,
+  CheckCircle2,
+  Database,
+  Globe,
+  Image as ImageIcon,
+  Palette,
+  RotateCcw,
+  Save,
+  Server,
+  Shield,
+  X,
 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import AdminLayout from "../../layouts/AdminLayout";
 
+import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { db, storage } from "../../services/firebase";
+import { isSupabaseConfigured, supabase } from "../../services/supabase";
+
 const AdminSettingsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
-    "system" | "appearance" | "security" | "payment"
+    "system" | "appearance" | "security"
   >("appearance");
   const [isSaving, setIsSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -49,23 +53,22 @@ const AdminSettingsPage: React.FC = () => {
     limitedSessions: false,
   });
 
-  const [paymentSettings, setPaymentSettings] = useState({
-    mpesaNumber: "",
-    emolaNumber: "",
-    bankName: "",
-    accountNumber: "",
-    accountHolder: "",
-  });
-
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        // Settings can be loaded from localStorage or API if implemented
-        // For now, just use default values
-        setLoading(false);
+        const snap = await getDoc(doc(db, "settings", "system"));
+        if (snap.exists()) {
+          const data: any = snap.data();
+          if (data.appearance)
+            setBrandSettings((prev) => ({ ...prev, ...data.appearance }));
+          if (data.system)
+            setSystemSettings((prev) => ({ ...prev, ...data.system }));
+          if (data.security)
+            setSecuritySettings((prev) => ({ ...prev, ...data.security }));
+        }
       } finally {
         setLoading(false);
       }
@@ -76,15 +79,16 @@ const AdminSettingsPage: React.FC = () => {
   const handleSave = async () => {
     try {
       setIsSaving(true);
-      // Save settings to localStorage or API
-      localStorage.setItem("brandSettings", JSON.stringify(brandSettings));
-      localStorage.setItem("systemSettings", JSON.stringify(systemSettings));
-      localStorage.setItem(
-        "securitySettings",
-        JSON.stringify(securitySettings),
+      await setDoc(
+        doc(db, "settings", "system"),
+        {
+          appearance: brandSettings,
+          system: systemSettings,
+          security: securitySettings,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
       );
-      localStorage.setItem("paymentSettings", JSON.stringify(paymentSettings));
-
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 3000);
     } finally {
@@ -117,11 +121,20 @@ const AdminSettingsPage: React.FC = () => {
         limitedSessions: false,
       });
 
-      // Clear localStorage
-      localStorage.removeItem("brandSettings");
-      localStorage.removeItem("systemSettings");
-      localStorage.removeItem("securitySettings");
-      localStorage.removeItem("paymentSettings");
+      await setDoc(doc(db, "settings", "system"), {
+        appearance: defaultSettings,
+        system: {
+          maintenanceMode: false,
+          publicSignups: true,
+          dynamicCache: true,
+        },
+        security: {
+          require2FA: true,
+          auditLogs: true,
+          limitedSessions: false,
+        },
+        updatedAt: serverTimestamp(),
+      });
 
       setShowResetConfirm(false);
       setShowSuccess(true);
@@ -150,17 +163,85 @@ const AdminSettingsPage: React.FC = () => {
       }
       setUploadingLogo(true);
       try {
-        // For now, use Data URL for logo storage (works without external storage)
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const dataUrl = e.target?.result as string;
-          setBrandSettings({ ...brandSettings, logoUrl: dataUrl });
-          localStorage.setItem(
-            "brandSettings",
-            JSON.stringify({ ...brandSettings, logoUrl: dataUrl }),
-          );
-        };
-        reader.readAsDataURL(file);
+        const ts = Date.now();
+        const ext = (file.name.split(".").pop() || "png").toLowerCase();
+        const supaPath = `branding/logo_${ts}.${ext}`;
+        const storagePath = `branding/logo_${ts}.${ext}`;
+        let finalUrl: string | null = null;
+        const preferSupabase =
+          isSupabaseConfigured ||
+          (import.meta as any)?.env?.VITE_STORAGE_PROVIDER === "supabase";
+
+        if (preferSupabase) {
+          try {
+            const buckets = ["branding", "profiles", "public", "PUBLIC"];
+            for (const b of buckets) {
+              const { error } = await supabase.storage
+                .from(b as any)
+                .upload(supaPath, file, {
+                  upsert: true,
+                  contentType: file.type,
+                });
+              if (!error) {
+                const { data } = supabase.storage
+                  .from(b as any)
+                  .getPublicUrl(supaPath);
+                finalUrl = data?.publicUrl || null;
+                break;
+              }
+            }
+          } catch (se) {
+            console.warn("Upload no Supabase falhou, tentando Firebase...", se);
+          }
+          if (!finalUrl) {
+            try {
+              const storageRef = ref(storage, storagePath);
+              await uploadBytes(storageRef, file, { contentType: file.type });
+              finalUrl = await getDownloadURL(storageRef);
+            } catch (fe) {
+              console.error(
+                "Falha nos dois provedores (Supabase e Firebase).",
+                fe,
+              );
+            }
+          }
+        } else {
+          try {
+            const storageRef = ref(storage, storagePath);
+            await uploadBytes(storageRef, file, { contentType: file.type });
+            finalUrl = await getDownloadURL(storageRef);
+          } catch (fe) {
+            console.warn("Upload no Firebase falhou, tentando Supabase...", fe);
+          }
+          if (!finalUrl && isSupabaseConfigured) {
+            try {
+              const buckets = ["branding", "profiles", "public", "PUBLIC"];
+              for (const b of buckets) {
+                const { error } = await supabase.storage
+                  .from(b as any)
+                  .upload(supaPath, file, {
+                    upsert: true,
+                    contentType: file.type,
+                  });
+                if (!error) {
+                  const { data } = supabase.storage
+                    .from(b as any)
+                    .getPublicUrl(supaPath);
+                  finalUrl = data?.publicUrl || null;
+                  break;
+                }
+              }
+            } catch (se) {
+              console.error(
+                "Falha nos dois provedores (Firebase e Supabase).",
+                se,
+              );
+            }
+          }
+        }
+
+        if (!finalUrl) throw new Error("Falha ao obter URL do logo.");
+        setBrandSettings({ ...brandSettings, logoUrl: finalUrl });
       } finally {
         setUploadingLogo(false);
       }
@@ -208,12 +289,6 @@ const AdminSettingsPage: React.FC = () => {
               label="Segurança"
               icon={<Shield size={18} />}
               onClick={() => setActiveTab("security")}
-            />
-            <SettingBtn
-              active={activeTab === "payment"}
-              label="Dados de Pagamento"
-              icon={<CreditCard size={18} />}
-              onClick={() => setActiveTab("payment")}
             />
           </aside>
 
@@ -483,7 +558,7 @@ const AdminSettingsPage: React.FC = () => {
                 <div className="space-y-4">
                   <ToggleSetting
                     label="Exigir 2FA"
-                    description="Obrigatório para administradores e tutores logarem."
+                    description="Obrigatório para administradores e instrutores logarem."
                     checked={securitySettings.require2FA}
                     onChange={(v: boolean) =>
                       setSecuritySettings((s) => ({ ...s, require2FA: v }))
@@ -505,121 +580,6 @@ const AdminSettingsPage: React.FC = () => {
                       setSecuritySettings((s) => ({ ...s, limitedSessions: v }))
                     }
                   />
-                </div>
-              </div>
-            )}
-
-            {activeTab === "payment" && (
-              <div className="space-y-8 animate-in fade-in duration-300">
-                <div className="p-6 bg-brand-light/30 border border-brand-green/10 rounded-2xl flex gap-4">
-                  <CreditCard
-                    size={24}
-                    className="text-brand-green flex-shrink-0"
-                  />
-                  <div>
-                    <h4 className="font-bold text-brand-dark text-sm">
-                      Dados de Pagamento
-                    </h4>
-                    <p className="text-xs text-brand-dark/60 mt-1 font-medium">
-                      Configure os métodos de pagamento para os certificados.
-                      Estes dados serão utilizados pelos alunos ao solicitar
-                      certificados.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-6">
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                      Número M-Pesa
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="+258 XX XXX XXXX"
-                      value={paymentSettings.mpesaNumber}
-                      onChange={(e) =>
-                        setPaymentSettings((s) => ({
-                          ...s,
-                          mpesaNumber: e.target.value,
-                        }))
-                      }
-                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-brand-green/5 focus:border-brand-green transition-all shadow-sm"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                      Número E-Mola
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="+258 XX XXX XXXX"
-                      value={paymentSettings.emolaNumber}
-                      onChange={(e) =>
-                        setPaymentSettings((s) => ({
-                          ...s,
-                          emolaNumber: e.target.value,
-                        }))
-                      }
-                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-brand-green/5 focus:border-brand-green transition-all shadow-sm"
-                    />
-                  </div>
-
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                        Nome do Banco
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Ex: BCI - Banco Comercial"
-                        value={paymentSettings.bankName}
-                        onChange={(e) =>
-                          setPaymentSettings((s) => ({
-                            ...s,
-                            bankName: e.target.value,
-                          }))
-                        }
-                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-brand-green/5 focus:border-brand-green transition-all shadow-sm"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                        Titular da Conta
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Nome da instituição"
-                        value={paymentSettings.accountHolder}
-                        onChange={(e) =>
-                          setPaymentSettings((s) => ({
-                            ...s,
-                            accountHolder: e.target.value,
-                          }))
-                        }
-                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-900 outline-none focus:ring-4 focus:ring-brand-green/5 focus:border-brand-green transition-all shadow-sm"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
-                      Número de Conta / NIB
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ex: 0000 0000 0000 0000 0000 0"
-                      value={paymentSettings.accountNumber}
-                      onChange={(e) =>
-                        setPaymentSettings((s) => ({
-                          ...s,
-                          accountNumber: e.target.value,
-                        }))
-                      }
-                      className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-black text-slate-900 font-mono outline-none focus:ring-4 focus:ring-brand-green/5 focus:border-brand-green transition-all shadow-sm"
-                    />
-                  </div>
                 </div>
               </div>
             )}

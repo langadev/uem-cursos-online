@@ -1,25 +1,49 @@
+import { deleteApp, initializeApp } from "firebase/app";
+import { createUserWithEmailAndPassword, getAuth } from "firebase/auth";
 import {
-    CheckCircle,
-    CheckCircle2,
-    Copy,
-    Database,
-    Edit,
-    Eye,
-    EyeOff,
-    Fingerprint,
-    Loader2,
-    Lock,
-    Mail,
-    Search,
-    Shield,
-    Trash2,
-    UserPlus,
-    X,
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+} from "firebase/firestore";
+import {
+  CheckCircle,
+  CheckCircle2,
+  Copy,
+  Database,
+  Edit,
+  Eye,
+  EyeOff,
+  Fingerprint,
+  Loader2,
+  Lock,
+  Mail,
+  Search,
+  Shield,
+  Trash2,
+  UserPlus,
+  X,
 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { UserProfile } from "../../contexts/AuthContext";
 import AdminLayout from "../../layouts/AdminLayout";
-import api from "../../services/api";
+import { db } from "../../services/firebase";
+import { isSupabaseConfigured, supabase } from "../../services/supabase";
+
+// Configuração fixa do Firebase para o criador temporário
+const firebaseConfig = {
+  apiKey: "AIzaSyBWRjMA0aQsbo6Cq-yA5xkFp5ny7n6U_2o",
+  authDomain: "edu-prime-ead96.firebaseapp.com",
+  projectId: "edu-prime-ead96",
+  storageBucket: "edu-prime-ead96.firebasestorage.app",
+  messagingSenderId: "656150019016",
+  appId: "1:656150019016:web:f98b5d49e85105d8689efd",
+};
 
 const UsersManagementPage: React.FC = () => {
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -44,37 +68,38 @@ const UsersManagementPage: React.FC = () => {
     status: "Ativo" as "Ativo" | "Suspenso",
   });
 
-  // Carregar utilizadores do MySQL
+  // Listener para dados em tempo real
   useEffect(() => {
-    const loadUsers = async () => {
-      try {
-        setLoading(true);
-        console.log(
-          "🔵 [UsersManagementPage] Iniciando carregamento de utilizadores...",
-        );
-        const response = await api.get("/users");
-        const usersList = response.data || [];
-        console.log(
-          "✅ [UsersManagementPage] Utilizadores carregados:",
-          usersList.length,
-          usersList,
-        );
-        setUsers(
-          usersList.sort((a: UserProfile, b: UserProfile) =>
-            (a.full_name || "").localeCompare(b.full_name || ""),
-          ),
-        );
-      } catch (error) {
-        console.error(
-          "❌ [UsersManagementPage] Erro ao carregar utilizadores:",
-          error,
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
+    const q = query(collection(db, "profiles"));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const usersList = snapshot.docs.map((doc) => {
+          const data = doc.data();
+          // Fallbacks para dados legados
+          return {
+            ...data,
+            id: doc.id,
+            uid: data.uid || doc.id,
+            full_name: data.full_name || "Utilizador Sem Nome",
+            role: data.role || "student",
+            status: data.status || "Ativo",
+            providers: data.providers || ["password"],
+            email: data.email || "N/A",
+          };
+        }) as UserProfile[];
 
-    loadUsers();
+        setUsers(
+          usersList.sort((a, b) => a.full_name.localeCompare(b.full_name)),
+        );
+        setLoading(false);
+      },
+      (err) => {
+        console.error("Erro Firestore:", err);
+        setLoading(false);
+      },
+    );
+    return () => unsubscribe();
   }, []);
 
   const triggerSuccess = (msg: string) => {
@@ -82,11 +107,34 @@ const UsersManagementPage: React.FC = () => {
     setTimeout(() => setSuccessMessage(null), 4000);
   };
 
+  const logActivity = async (
+    action: string,
+    details: string,
+    targetUser?: UserProfile,
+  ) => {
+    try {
+      await addDoc(collection(db, "admin_logs"), {
+        action,
+        details,
+        targetUserId: targetUser?.id,
+        targetUserName: targetUser?.full_name,
+        targetUserRole: targetUser?.role,
+        timestamp: serverTimestamp(),
+        adminName: "Admin Panel",
+        createdAt: new Date().toISOString(),
+      });
+      console.log("Log registado:", { action, details });
+    } catch (error) {
+      console.error("Erro ao registar log:", error);
+    }
+  };
+
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (actionLoading) return;
 
     setActionLoading(true);
+    let tempAppToClean = null;
 
     try {
       if (editingUser) {
@@ -97,41 +145,102 @@ const UsersManagementPage: React.FC = () => {
           status: formData.status,
         };
 
-        await api.put(`/users/${editingUser.id}`, updateData);
+        await updateDoc(doc(db, "profiles", editingUser.id), updateData);
+
+        // Registar log de alteração
+        const changes = [];
+        if (editingUser.full_name !== formData.full_name)
+          changes.push(
+            `Nome: ${editingUser.full_name} → ${formData.full_name}`,
+          );
+        if (editingUser.role !== formData.role)
+          changes.push(`Cargo: ${editingUser.role} → ${formData.role}`);
+        if (editingUser.status !== formData.status)
+          changes.push(`Status: ${editingUser.status} → ${formData.status}`);
+
+        if (changes.length > 0) {
+          await logActivity(
+            `Utilizador Atualizado`,
+            `${changes.join("; ")}`,
+            editingUser,
+          );
+        }
+
+        // Sincronizar com Supabase
+        if (isSupabaseConfigured) {
+          await supabase.from("profiles").upsert({
+            id: editingUser.id,
+            full_name: formData.full_name,
+            role: formData.role,
+            status: formData.status,
+            last_sync: new Date().toISOString(),
+          });
+          // Normaliza cargo no Supabase para redirecionamento confiável
+          await supabase.from("user_roles").upsert({
+            uid: editingUser.id,
+            role_code: formData.role,
+            updated_at: new Date().toISOString(),
+          });
+        }
+
         triggerSuccess("Utilizador atualizado!");
       } else {
-        // Fluxo de Novo Registo
-        const newUserData = {
+        // Fluxo de Novo Registo (Usando app temporário para não deslogar o Admin)
+        const tempAppName = `app-creator-${Date.now()}`;
+        const tempApp = initializeApp(firebaseConfig, tempAppName);
+        tempAppToClean = tempApp;
+        const tempAuth = getAuth(tempApp);
+
+        const { user: newUser } = await createUserWithEmailAndPassword(
+          tempAuth,
+          formData.email,
+          formData.password,
+        );
+
+        const profilePayload = {
+          id: newUser.uid,
+          uid: newUser.uid,
           full_name: formData.full_name,
           email: formData.email,
-          password: formData.password,
           role: formData.role,
           status: formData.status,
+          providers: ["password"],
+          createdAt: serverTimestamp(),
+          lastLogin: serverTimestamp(),
         };
 
-        const response = await api.post("/users", newUserData);
-        console.log("Novo utilizador criado:", response.data);
+        await setDoc(doc(db, "profiles", newUser.uid), profilePayload);
+
+        // Espelhar no Supabase
+        if (isSupabaseConfigured) {
+          await supabase.from("profiles").insert({
+            id: newUser.uid,
+            uid: newUser.uid,
+            full_name: formData.full_name,
+            email: formData.email,
+            role: formData.role,
+            status: formData.status,
+          });
+          await supabase.from("user_roles").upsert({
+            uid: newUser.uid,
+            role_code: formData.role,
+          });
+        }
+
         triggerSuccess("Novo acesso criado com sucesso!");
       }
 
       setIsUserModalOpen(false);
-
-      // Recarregar lista de utilizadores
-      const response = await api.get("/users");
-      const usersList = response.data || [];
-      setUsers(
-        usersList.sort((a: UserProfile, b: UserProfile) =>
-          (a.full_name || "").localeCompare(b.full_name || ""),
-        ),
-      );
     } catch (error: any) {
-      console.error("Erro:", error);
-      alert(
-        error.response?.data?.message ||
-          error.message ||
-          "Erro ao processar gravação.",
-      );
+      console.error("Erro no processo:", error);
+      alert(error.message || "Erro ao processar gravação.");
     } finally {
+      // Limpeza crítica para evitar processamento infinito
+      if (tempAppToClean) {
+        try {
+          await deleteApp(tempAppToClean);
+        } catch (e) {}
+      }
       setActionLoading(false);
     }
   };
@@ -176,22 +285,25 @@ const UsersManagementPage: React.FC = () => {
     if (actionLoading) return;
     setActionLoading(true);
     try {
-      await api.delete(`/users/${id}`);
+      const userToDelete = users.find((u) => u.id === id);
 
+      await deleteDoc(doc(db, "profiles", id));
+
+      // Registar log de eliminação
+      await logActivity(
+        `Utilizador Eliminado`,
+        `${userToDelete?.full_name} (${userToDelete?.email}) - ${userToDelete?.role}`,
+        userToDelete,
+      );
+
+      if (isSupabaseConfigured) {
+        await supabase.from("profiles").delete().eq("id", id);
+        await supabase.from("user_roles").delete().eq("uid", id);
+      }
       setDeleteConfirmId(null);
       triggerSuccess("Registo removido.");
-
-      // Recarregar lista de utilizadores
-      const response = await api.get("/users");
-      const usersList = response.data || [];
-      setUsers(
-        usersList.sort((a: UserProfile, b: UserProfile) =>
-          (a.full_name || "").localeCompare(b.full_name || ""),
-        ),
-      );
-    } catch (error: any) {
-      console.error("Erro ao eliminar:", error);
-      alert(error.response?.data?.message || "Erro ao eliminar.");
+    } catch (error) {
+      alert("Erro ao eliminar.");
     } finally {
       setActionLoading(false);
     }
@@ -307,7 +419,7 @@ const UsersManagementPage: React.FC = () => {
                       Cargo / Status
                     </th>
                     <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
-                      Status da BD
+                      Supabase Sync
                     </th>
                     <th className="px-8 py-6 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">
                       Ações
@@ -380,7 +492,14 @@ const UsersManagementPage: React.FC = () => {
                         </td>
                         <td className="px-6 py-7 text-center">
                           <div className="flex items-center justify-center gap-2">
-                            <Database size={14} className="text-emerald-500" />
+                            <Database
+                              size={14}
+                              className={
+                                isSupabaseConfigured
+                                  ? "text-emerald-500"
+                                  : "text-slate-200"
+                              }
+                            />
                             <span className="text-[10px] font-black text-slate-400 uppercase">
                               Online
                             </span>
@@ -438,7 +557,7 @@ const UsersManagementPage: React.FC = () => {
                       {editingUser ? "Editar Acesso" : "Novo Acesso"}
                     </h3>
                     <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
-                      Base de Dados MySQL
+                      Segurança Firebase & Supabase
                     </p>
                   </div>
                 </div>
@@ -617,7 +736,7 @@ const UsersManagementPage: React.FC = () => {
                 Eliminar Registo?
               </h3>
               <p className="text-sm text-slate-500 mb-10 leading-relaxed font-medium">
-                A remoção deste utilizador é definitiva.
+                A remoção deste utilizador é definitiva no Firebase e Supabase.
               </p>
               <div className="flex flex-col gap-4">
                 <button

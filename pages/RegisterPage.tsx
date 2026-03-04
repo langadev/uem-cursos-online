@@ -1,18 +1,18 @@
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import {
-  AlertCircle,
-  ArrowRight,
-  CheckCircle,
-  Eye,
-  EyeOff,
-  Loader2,
-  Lock,
-  Mail,
-  User,
+    AlertCircle,
+    ArrowRight,
+    CheckCircle,
+    Eye,
+    EyeOff,
+    Loader2,
+    Lock,
+    Mail,
+    User,
 } from "lucide-react";
 import React, { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { apiClient } from "../services/api";
-import { useAuth } from "../contexts/AuthContext";
+import { auth } from "../services/firebase";
 
 const RegisterPage: React.FC = () => {
   const [name, setName] = useState("");
@@ -24,7 +24,6 @@ const RegisterPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const { refreshProfile } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,44 +32,36 @@ const RegisterPage: React.FC = () => {
       return;
     }
 
-    if (password.length < 6) {
-      setError("A senha deve ter pelo menos 6 caracteres.");
-      return;
-    }
-
     setIsLoading(true);
     setError(null);
     try {
-      console.log("📝 Registando usuário via MySQL...");
-      const result = await apiClient.registerWithPassword(
+      // 1. Criar utilizador no Firebase
+      const result = await createUserWithEmailAndPassword(
+        auth,
         email,
         password,
-        name,
-        "student",
       );
 
-      if (result.token && result.user) {
-        console.log("✅ Registro bem-sucedido:", result.user);
-        await refreshProfile?.();
+      // 2. Adicionar o nome ao perfil do Firebase
+      await updateProfile(result.user, { displayName: name });
 
-        // Se há um estado anterior (ex: inscrição em curso), redirecionamos para lá
-        const state = location.state as { from?: string } | undefined;
-        if (state?.from) {
-          navigate(state.from, { replace: true });
-        } else {
-          // Caso contrário, vai para o dashboard do aluno
-          navigate("/aluno", { replace: true });
-        }
+      // 3. O AuthContext irá detectar a mudança e criar o perfil no Supabase automaticamente
+      // Se há um estado anterior (ex: inscrição em curso), redirecionamos para lá
+      const state = location.state as { from?: string } | undefined;
+      if (state?.from) {
+        navigate(state.from, { replace: true });
+      } else {
+        // Caso contrário, vai para a página inicial
+        navigate("/", { replace: true });
       }
     } catch (err: any) {
-      console.error("❌ Erro de registro:", err);
-
-      if (err.response?.status === 409) {
-        setError("Este e-mail já está cadastrado.");
-      } else if (err.response?.status === 400) {
-        setError(err.response.data?.error || "Dados inválidos.");
+      console.error(err);
+      if (err.code === "auth/email-already-in-use") {
+        setError("Este e-mail já está em uso por outra conta.");
+      } else if (err.code === "auth/weak-password") {
+        setError("A senha deve ter pelo menos 6 caracteres.");
       } else {
-        setError("Erro ao criar a sua conta. Verifique sua conexão.");
+        setError("Ocorreu um erro ao criar a sua conta.");
       }
     } finally {
       setIsLoading(false);

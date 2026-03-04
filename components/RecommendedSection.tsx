@@ -1,55 +1,44 @@
-import { ArrowRight } from "lucide-react";
-import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { apiClient } from "../services/api";
-import { Course } from "../types";
-import CourseCard from "./CourseCard";
+
+import React, { useEffect, useState } from 'react';
+import { ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import CourseCard from './CourseCard';
+import { Course } from '../types';
+import { db } from '../services/firebase';
+import { collection, onSnapshot, query, where, limit } from 'firebase/firestore';
 
 const RecommendedSection: React.FC = () => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadCourses = async () => {
-      try {
-        const allCourses = await apiClient.fetchAllCourses();
-
-        // Transforma dados da API para o formato do frontend
-        const transformedCourses: Course[] = allCourses
-          .filter((c) => c.is_active)
-          .map(
-            (data: any) =>
-              ({
-                id: data.id,
-                title: data.title || "Sem título",
-                instructor: data.instructor_name || "Professor",
-                category: data.category || "Geral",
-                rating: typeof data.rating === "number" ? data.rating : 0,
-                reviewCount: 0,
-                duration: `${data.duration_hours || 0}h`,
-                relevanceScore: data.rating || 0,
-                imageUrl:
-                  data.image_url ||
-                  "https://images.unsplash.com/photo-1529101091764-c3526daf38fe?w=800&q=80&auto=format&fit=crop",
-                badgeColor: "bg-stone-100 text-stone-800",
-                isActive: true,
-              }) as Course,
-          );
-
-        // Ordena por relevância e limita a 8 itens
-        transformedCourses.sort(
-          (a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0),
-        );
-        setCourses(transformedCourses.slice(0, 8));
-      } catch (err) {
-        console.error("Erro ao carregar cursos recomendados", err);
-        setCourses([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadCourses();
+    const q = query(collection(db, 'courses'), where('isActive', '==', true), limit(12));
+    const unsub = onSnapshot(q, (snap) => {
+      const list: Course[] = snap.docs.map((d) => {
+        const data: any = d.data();
+        return {
+          id: d.id,
+          title: data?.title || 'Sem título',
+          instructor: data?.instructor || '',
+          category: data?.category || 'Geral',
+          rating: typeof data?.rating === 'number' ? data.rating : 0,
+          reviewCount: typeof data?.reviewCount === 'number' ? data.reviewCount : 0,
+          duration: data?.duration || '0h',
+          relevanceScore: typeof data?.relevanceScore === 'number' ? data.relevanceScore : 0,
+          imageUrl: data?.imageUrl || 'https://images.unsplash.com/photo-1529101091764-c3526daf38fe?w=800&q=80&auto=format&fit=crop',
+          badgeColor: data?.badgeColor || 'bg-stone-100 text-stone-800',
+          isActive: data?.isActive !== false,
+        } as Course;
+      });
+      // Ordena por relevância e limita a 8 itens
+      list.sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
+      setCourses(list.slice(0, 8));
+      setLoading(false);
+    }, (err) => {
+      console.error('Failed to load courses', err);
+      setLoading(false);
+    });
+    return () => unsub();
   }, []);
 
   return (
@@ -64,11 +53,8 @@ const RecommendedSection: React.FC = () => {
             Baseado nos seus interesses em tecnologia e liderança.
           </p>
         </div>
-
-        <Link
-          to="/cursos"
-          className="flex items-center gap-1 text-brand-green font-semibold hover:gap-2 transition-all"
-        >
+        
+        <Link to="/cursos" className="flex items-center gap-1 text-brand-green font-semibold hover:gap-2 transition-all">
           Ver todos
           <ArrowRight className="w-4 h-4" />
         </Link>
@@ -77,12 +63,9 @@ const RecommendedSection: React.FC = () => {
       {/* Grid */}
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[...Array(4)].map((_, i) => (
-            <div
-              key={i}
-              className="h-96 bg-gray-100 rounded-xl animate-pulse"
-            ></div>
-          ))}
+           {[...Array(4)].map((_, i) => (
+             <div key={i} className="h-96 bg-gray-100 rounded-xl animate-pulse"></div>
+           ))}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">

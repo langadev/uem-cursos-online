@@ -1,4 +1,18 @@
 import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  serverTimestamp,
+  updateDoc,
+} from "firebase/firestore";
+import {
+  getDownloadURL,
+  getStorage,
+  ref as sRef,
+  uploadBytes,
+} from "firebase/storage";
+import {
     ArrowLeft,
     Bold,
     Check,
@@ -31,7 +45,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import InstructorLayout from "../../layouts/InstructorLayout";
-import api from "../../services/api";
+import app, { db } from "../../services/firebase";
 import { isSupabaseConfigured, supabase } from "../../services/supabase";
 
 interface Lesson {
@@ -96,17 +110,7 @@ interface InteractiveExercise {
 }
 
 // Block Content Interfaces
-export type BlockType =
-  | "h1"
-  | "h2"
-  | "h3"
-  | "h4"
-  | "p"
-  | "image"
-  | "quote"
-  | "list"
-  | "list-ordered"
-  | "file";
+export type BlockType = "h1" | "h2" | "h3" | "h4" | "p" | "image" | "quote" | "list" | "list-ordered" | "file";
 
 export interface ContentBlock {
   id: string;
@@ -117,18 +121,7 @@ export interface ContentBlock {
   fileName?: string;
 }
 
-const COMMON_EMOJIS = [
-  "💡",
-  "📝",
-  "🎯",
-  "🚀",
-  "📢",
-  "❓",
-  "✅",
-  "⭐",
-  "🔥",
-  "💎",
-];
+const COMMON_EMOJIS = ["💡", "📝", "🎯", "🚀", "📢", "❓", "✅", "⭐", "🔥", "💎"];
 
 const LessonBlockEditor: React.FC<{
   blocksJson: string;
@@ -138,17 +131,13 @@ const LessonBlockEditor: React.FC<{
   const [blocks, setBlocks] = useState<ContentBlock[]>(() => {
     try {
       const parsed = JSON.parse(blocksJson);
-      return Array.isArray(parsed)
-        ? parsed
-        : [{ id: "1", type: "p", value: blocksJson }];
+      return Array.isArray(parsed) ? parsed : [{ id: "1", type: "p", value: blocksJson }];
     } catch {
       return [{ id: "1", type: "p", value: blocksJson || "" }];
     }
   });
 
-  const [activeEmojiPicker, setActiveEmojiPicker] = useState<string | null>(
-    null,
-  );
+  const [activeEmojiPicker, setActiveEmojiPicker] = useState<string | null>(null);
 
   useEffect(() => {
     onChange(JSON.stringify(blocks));
@@ -164,26 +153,15 @@ const LessonBlockEditor: React.FC<{
   };
 
   const updateBlock = (id: string, value: string, fileName?: string) => {
-    setBlocks(
-      blocks.map((b) =>
-        b.id === id ? { ...b, value, fileName: fileName || b.fileName } : b,
-      ),
-    );
+    setBlocks(blocks.map((b) => (b.id === id ? { ...b, value, fileName: fileName || b.fileName } : b)));
   };
 
   const updateEmoji = (id: string, emoji: string, iconUrl?: string) => {
-    setBlocks(
-      blocks.map((b) =>
-        b.id === id ? { ...b, emoji, iconUrl: iconUrl ?? "" } : b,
-      ),
-    );
+    setBlocks(blocks.map((b) => (b.id === id ? { ...b, emoji, iconUrl: iconUrl ?? "" } : b)));
     setActiveEmojiPicker(null);
   };
 
-  const handleFileUploadInBlock = async (
-    id: string,
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleFileUploadInBlock = async (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
@@ -194,10 +172,7 @@ const LessonBlockEditor: React.FC<{
     }
   };
 
-  const handleMiniIconUpload = async (
-    id: string,
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleMiniIconUpload = async (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
@@ -220,17 +195,11 @@ const LessonBlockEditor: React.FC<{
     const newBlocks = [...blocks];
     const targetIndex = direction === "up" ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= blocks.length) return;
-    [newBlocks[index], newBlocks[targetIndex]] = [
-      newBlocks[targetIndex],
-      newBlocks[index],
-    ];
+    [newBlocks[index], newBlocks[targetIndex]] = [newBlocks[targetIndex], newBlocks[index]];
     setBlocks(newBlocks);
   };
 
-  const handleImageUpload = async (
-    id: string,
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleImageUpload = async (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
@@ -242,9 +211,7 @@ const LessonBlockEditor: React.FC<{
   };
 
   const toggleStyle = (blockId: string, char: string) => {
-    const el = document.getElementById(`input-block-${blockId}`) as
-      | HTMLTextAreaElement
-      | HTMLInputElement;
+    const el = document.getElementById(`input-block-${blockId}`) as HTMLTextAreaElement | HTMLInputElement;
     if (!el) return;
     const start = el.selectionStart || 0;
     const end = el.selectionEnd || 0;
@@ -252,10 +219,10 @@ const LessonBlockEditor: React.FC<{
     const before = text.substring(0, start);
     const selection = text.substring(start, end);
     const after = text.substring(end);
-
+    
     const newVal = `${before}${char}${selection}${char}${after}`;
     updateBlock(blockId, newVal);
-
+    
     // Reset focus and selection
     setTimeout(() => {
       el.focus();
@@ -341,24 +308,13 @@ const LessonBlockEditor: React.FC<{
 
       <div className="space-y-3">
         {blocks.map((block, index) => (
-          <div
-            key={block.id}
-            className="group relative bg-white border border-gray-100 rounded-xl p-3 shadow-sm hover:border-brand-green/30 transition-all"
-          >
+          <div key={block.id} className="group relative bg-white border border-gray-100 rounded-xl p-3 shadow-sm hover:border-brand-green/30 transition-all">
             <div className="absolute -left-10 top-1/2 -translate-y-1/2 flex flex-col items-center opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                disabled={index === 0}
-                onClick={() => moveBlock(index, "up")}
-                className="p-1 text-gray-400 hover:text-brand-green disabled:opacity-30"
-              >
+              <button disabled={index === 0} onClick={() => moveBlock(index, "up")} className="p-1 text-gray-400 hover:text-brand-green disabled:opacity-30">
                 <ChevronDown size={14} className="rotate-180" />
               </button>
               <GripVertical size={14} className="text-gray-300" />
-              <button
-                disabled={index === blocks.length - 1}
-                onClick={() => moveBlock(index, "down")}
-                className="p-1 text-gray-400 hover:text-brand-green disabled:opacity-30"
-              >
+              <button disabled={index === blocks.length - 1} onClick={() => moveBlock(index, "down")} className="p-1 text-gray-400 hover:text-brand-green disabled:opacity-30">
                 <ChevronDown size={14} />
               </button>
             </div>
@@ -372,29 +328,21 @@ const LessonBlockEditor: React.FC<{
                       {block.emoji ? (
                         <span className="text-xl">{block.emoji}</span>
                       ) : (
-                        <img
-                          src={block.iconUrl}
-                          className="w-full h-full object-cover"
-                          alt="icon"
-                        />
+                        <img src={block.iconUrl} className="w-full h-full object-cover" alt="icon" />
                       )}
                     </div>
                   )}
-
+                  
                   <div className="relative">
                     <button
                       type="button"
-                      onClick={() =>
-                        setActiveEmojiPicker(
-                          activeEmojiPicker === block.id ? null : block.id,
-                        )
-                      }
+                      onClick={() => setActiveEmojiPicker(activeEmojiPicker === block.id ? null : block.id)}
                       className="p-1.5 bg-white border border-gray-100 text-gray-400 hover:text-brand-green hover:border-brand-green rounded-full shadow-sm transition-all"
                       title="Alterar Ícone"
                     >
                       <PlusIcon size={14} />
                     </button>
-
+                    
                     {activeEmojiPicker === block.id && (
                       <div className="absolute right-0 top-full mt-2 bg-white border border-gray-100 shadow-2xl rounded-2xl p-3 flex flex-col gap-3 w-56 z-[100] animate-in fade-in zoom-in duration-200">
                         <div className="flex flex-wrap gap-2">
@@ -412,11 +360,7 @@ const LessonBlockEditor: React.FC<{
                         <div className="border-t border-gray-50 pt-3">
                           <button
                             type="button"
-                            onClick={() =>
-                              document
-                                .getElementById(`mini-img-${block.id}`)
-                                ?.click()
-                            }
+                            onClick={() => document.getElementById(`mini-img-${block.id}`)?.click()}
                             className="w-full text-xs flex items-center justify-center gap-2 py-2.5 bg-gray-50 hover:bg-brand-green/10 text-brand-green rounded-xl transition-colors font-bold"
                           >
                             <ImageIcon size={14} /> Upload de Imagem
@@ -452,20 +396,8 @@ const LessonBlockEditor: React.FC<{
                       className="w-full text-xl font-bold border-none outline-none focus:ring-0 placeholder:text-gray-300 pr-24"
                     />
                     <div className="absolute right-12 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover/field:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => toggleStyle(block.id, "**")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Negrito"
-                      >
-                        <Bold size={14} />
-                      </button>
-                      <button
-                        onClick={() => toggleStyle(block.id, "*")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Itálico"
-                      >
-                        <Italic size={14} />
-                      </button>
+                      <button onClick={() => toggleStyle(block.id, "**")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Negrito"><Bold size={14}/></button>
+                      <button onClick={() => toggleStyle(block.id, "*")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Itálico"><Italic size={14}/></button>
                     </div>
                   </div>
                 )}
@@ -480,20 +412,8 @@ const LessonBlockEditor: React.FC<{
                       className="w-full text-lg font-bold border-none outline-none focus:ring-0 placeholder:text-gray-300 text-gray-700 pr-24"
                     />
                     <div className="absolute right-12 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover/field:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => toggleStyle(block.id, "**")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Negrito"
-                      >
-                        <Bold size={14} />
-                      </button>
-                      <button
-                        onClick={() => toggleStyle(block.id, "*")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Itálico"
-                      >
-                        <Italic size={14} />
-                      </button>
+                      <button onClick={() => toggleStyle(block.id, "**")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Negrito"><Bold size={14}/></button>
+                      <button onClick={() => toggleStyle(block.id, "*")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Itálico"><Italic size={14}/></button>
                     </div>
                   </div>
                 )}
@@ -508,20 +428,8 @@ const LessonBlockEditor: React.FC<{
                       className="w-full text-base font-bold border-none outline-none focus:ring-0 placeholder:text-gray-300 text-gray-600 pr-24"
                     />
                     <div className="absolute right-12 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover/field:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => toggleStyle(block.id, "**")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Negrito"
-                      >
-                        <Bold size={14} />
-                      </button>
-                      <button
-                        onClick={() => toggleStyle(block.id, "*")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Itálico"
-                      >
-                        <Italic size={14} />
-                      </button>
+                      <button onClick={() => toggleStyle(block.id, "**")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Negrito"><Bold size={14}/></button>
+                      <button onClick={() => toggleStyle(block.id, "*")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Itálico"><Italic size={14}/></button>
                     </div>
                   </div>
                 )}
@@ -536,20 +444,8 @@ const LessonBlockEditor: React.FC<{
                       className="w-full text-sm font-bold border-none outline-none focus:ring-0 placeholder:text-gray-300 text-gray-500 pr-24 uppercase tracking-wide"
                     />
                     <div className="absolute right-12 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover/field:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => toggleStyle(block.id, "**")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Negrito"
-                      >
-                        <Bold size={14} />
-                      </button>
-                      <button
-                        onClick={() => toggleStyle(block.id, "*")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Itálico"
-                      >
-                        <Italic size={14} />
-                      </button>
+                      <button onClick={() => toggleStyle(block.id, "**")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Negrito"><Bold size={14}/></button>
+                      <button onClick={() => toggleStyle(block.id, "*")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Itálico"><Italic size={14}/></button>
                     </div>
                   </div>
                 )}
@@ -569,22 +465,8 @@ const LessonBlockEditor: React.FC<{
                       }}
                     />
                     <div className="absolute right-12 bottom-0 flex items-center gap-1 opacity-0 group-hover/field:opacity-100 transition-opacity mb-1">
-                      <button
-                        type="button"
-                        onClick={() => toggleStyle(block.id, "**")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Negrito"
-                      >
-                        <Bold size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleStyle(block.id, "*")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Itálico"
-                      >
-                        <Italic size={14} />
-                      </button>
+                      <button type="button" onClick={() => toggleStyle(block.id, "**")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Negrito"><Bold size={14}/></button>
+                      <button type="button" onClick={() => toggleStyle(block.id, "*")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Itálico"><Italic size={14}/></button>
                     </div>
                   </div>
                 )}
@@ -599,22 +481,8 @@ const LessonBlockEditor: React.FC<{
                       rows={1}
                     />
                     <div className="absolute right-12 bottom-0 flex items-center gap-1 opacity-0 group-hover/field:opacity-100 transition-opacity mb-1">
-                      <button
-                        type="button"
-                        onClick={() => toggleStyle(block.id, "**")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Negrito"
-                      >
-                        <Bold size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleStyle(block.id, "*")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Itálico"
-                      >
-                        <Italic size={14} />
-                      </button>
+                      <button type="button" onClick={() => toggleStyle(block.id, "**")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Negrito"><Bold size={14}/></button>
+                      <button type="button" onClick={() => toggleStyle(block.id, "*")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Itálico"><Italic size={14}/></button>
                     </div>
                   </div>
                 )}
@@ -635,22 +503,8 @@ const LessonBlockEditor: React.FC<{
                       }}
                     />
                     <div className="absolute right-12 bottom-0 flex items-center gap-1 opacity-0 group-hover/field:opacity-100 transition-opacity mb-1">
-                      <button
-                        type="button"
-                        onClick={() => toggleStyle(block.id, "**")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Negrito"
-                      >
-                        <Bold size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleStyle(block.id, "*")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Itálico"
-                      >
-                        <Italic size={14} />
-                      </button>
+                      <button type="button" onClick={() => toggleStyle(block.id, "**")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Negrito"><Bold size={14}/></button>
+                      <button type="button" onClick={() => toggleStyle(block.id, "*")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Itálico"><Italic size={14}/></button>
                     </div>
                   </div>
                 )}
@@ -659,12 +513,8 @@ const LessonBlockEditor: React.FC<{
                     <span className="text-brand-green font-bold text-sm min-w-[20px] text-right mt-0.5">
                       {(() => {
                         // Tentar descobrir a posição na lista atual
-                        const listBlocks = blocks.filter(
-                          (b) => b.type === "list-ordered",
-                        );
-                        const pos = listBlocks.findIndex(
-                          (b) => b.id === block.id,
-                        );
+                        const listBlocks = blocks.filter(b => b.type === "list-ordered");
+                        const pos = listBlocks.findIndex(b => b.id === block.id);
                         return pos >= 0 ? `${pos + 1}.` : "1.";
                       })()}
                     </span>
@@ -682,22 +532,8 @@ const LessonBlockEditor: React.FC<{
                       }}
                     />
                     <div className="absolute right-12 bottom-0 flex items-center gap-1 opacity-0 group-hover/field:opacity-100 transition-opacity mb-1">
-                      <button
-                        type="button"
-                        onClick={() => toggleStyle(block.id, "**")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Negrito"
-                      >
-                        <Bold size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleStyle(block.id, "*")}
-                        className="p-1 hover:bg-gray-100 rounded text-gray-400"
-                        title="Itálico"
-                      >
-                        <Italic size={14} />
-                      </button>
+                      <button type="button" onClick={() => toggleStyle(block.id, "**")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Negrito"><Bold size={14}/></button>
+                      <button type="button" onClick={() => toggleStyle(block.id, "*")} className="p-1 hover:bg-gray-100 rounded text-gray-400" title="Itálico"><Italic size={14}/></button>
                     </div>
                   </div>
                 )}
@@ -705,11 +541,7 @@ const LessonBlockEditor: React.FC<{
                   <div className="space-y-2 pr-12">
                     {block.value ? (
                       <div className="relative rounded-xl overflow-hidden border border-gray-100 shadow-lg max-w-xl mx-auto group">
-                        <img
-                          src={block.value}
-                          alt="Block image"
-                          className="w-full h-auto"
-                        />
+                        <img src={block.value} alt="Block image" className="w-full h-auto" />
                         <button
                           type="button"
                           onClick={() => updateBlock(block.id, "")}
@@ -719,18 +551,9 @@ const LessonBlockEditor: React.FC<{
                         </button>
                       </div>
                     ) : (
-                      <div
-                        className="flex flex-col items-center justify-center py-8 border-2 border-dashed border-gray-100 rounded-lg hover:border-brand-green/50 cursor-pointer transition-all"
-                        onClick={() =>
-                          document
-                            .getElementById(`block-img-${block.id}`)
-                            ?.click()
-                        }
-                      >
+                      <div className="flex flex-col items-center justify-center py-8 border-2 border-dashed border-gray-100 rounded-lg hover:border-brand-green/50 cursor-pointer transition-all" onClick={() => document.getElementById(`block-img-${block.id}`)?.click()}>
                         <ImageIcon size={24} className="text-gray-300 mb-2" />
-                        <span className="text-xs text-gray-400">
-                          Clique para selecionar imagem
-                        </span>
+                        <span className="text-xs text-gray-400">Clique para selecionar imagem</span>
                         <input
                           id={`block-img-${block.id}`}
                           type="file"
@@ -751,12 +574,8 @@ const LessonBlockEditor: React.FC<{
                           <FileIcon size={20} />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-slate-700 truncate">
-                            {block.fileName || "Ficheiro"}
-                          </p>
-                          <p className="text-[10px] text-gray-400 uppercase tracking-tighter">
-                            Download disponível no player
-                          </p>
+                          <p className="text-sm font-bold text-slate-700 truncate">{block.fileName || "Ficheiro"}</p>
+                          <p className="text-[10px] text-gray-400 uppercase tracking-tighter">Download disponível no player</p>
                         </div>
                         <button
                           type="button"
@@ -767,18 +586,9 @@ const LessonBlockEditor: React.FC<{
                         </button>
                       </div>
                     ) : (
-                      <div
-                        className="flex flex-col items-center justify-center py-8 border-2 border-dashed border-gray-100 rounded-lg hover:border-brand-green/50 cursor-pointer transition-all"
-                        onClick={() =>
-                          document
-                            .getElementById(`blk-file-${block.id}`)
-                            ?.click()
-                        }
-                      >
+                      <div className="flex flex-col items-center justify-center py-8 border-2 border-dashed border-gray-100 rounded-lg hover:border-brand-green/50 cursor-pointer transition-all" onClick={() => document.getElementById(`blk-file-${block.id}`)?.click()}>
                         <FileUp size={24} className="text-gray-300 mb-2" />
-                        <span className="text-xs text-gray-400">
-                          Clique para anexar ficheiro (PDF, ZIP, DOCX, etc)
-                        </span>
+                        <span className="text-xs text-gray-400">Clique para anexar ficheiro (PDF, ZIP, DOCX, etc)</span>
                         <input
                           id={`blk-file-${block.id}`}
                           type="file"
@@ -826,6 +636,7 @@ const CourseEditorPage: React.FC = () => {
   const [formData, setFormData] = useState({
     title: id ? "UX/UI Design Moderno e Acessível" : "",
     category: "Design",
+    certificatePrice: "",
     cardDescription:
       "Domine as habilidades essenciais para se destacar no mercado de trabalho.",
     fullDescription:
@@ -865,14 +676,19 @@ const CourseEditorPage: React.FC = () => {
   const SUPABASE_BUCKET = "course-files";
   const SUPABASE_SIGNED_TTL = 60 * 60 * 24 * 365; // 1 ano
 
-  // Carrega curso da API quando editar
+  // Carrega curso do Firestore quando editar
   useEffect(() => {
     const load = async () => {
       if (!id) return;
       try {
-        const response = await api.get(`/courses/${id}`);
-        const data = response.data;
-        if (data) {
+        const ref = doc(db, "courses", id);
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          const data: any = snap.data();
+          // Formata o certificatePrice de número para string formatada
+          const formattedPrice = data?.certificatePrice
+            ? data.certificatePrice.toString().replace(".", ",")
+            : "0,00";
           // Remove "h" da duração se existir
           const duration = data?.duration
             ? data.duration.toString().replace("h", "")
@@ -880,8 +696,9 @@ const CourseEditorPage: React.FC = () => {
           setFormData({
             title: data?.title || "",
             category: data?.category || "Design",
-            cardDescription: data?.cardDescription || data?.description || "",
-            fullDescription: data?.fullDescription || data?.description || "",
+            certificatePrice: formattedPrice,
+            cardDescription: data?.cardDescription || "",
+            fullDescription: data?.fullDescription || "",
             language: data?.language || "Português",
             duration: duration,
             learningOutcomes: Array.isArray(data?.learningOutcomes)
@@ -892,14 +709,13 @@ const CourseEditorPage: React.FC = () => {
               ? data.interactiveExercises
               : [],
           });
-          const imgUrl = data?.image_url || data?.imageUrl || "";
+          const imgUrl = data?.imageUrl || "";
           setImageUrl(imgUrl);
           // Define previewImage com a URL da imagem para exibição
           setPreviewImage(imgUrl);
         }
       } catch (e) {
         console.error("Falha ao carregar curso:", e);
-        showToast("Erro ao carregar curso", "error");
       }
     };
     load();
@@ -913,6 +729,14 @@ const CourseEditorPage: React.FC = () => {
     }
     if (!formData.duration || parseInt(formData.duration) === 0) {
       showToast("Por favor, defina a duração do curso.", "error");
+      return false;
+    }
+    if (
+      !formData.certificatePrice ||
+      formData.certificatePrice.trim().length === 0 ||
+      parseFloat(formData.certificatePrice.replace(",", ".")) <= 0
+    ) {
+      showToast("Por favor, defina o preço do certificado.", "error");
       return false;
     }
     return true;
@@ -933,26 +757,53 @@ const CourseEditorPage: React.FC = () => {
     setIsSaving(true);
     try {
       const image = previewImage || imageUrl || "";
+      const parseCertificatePrice = (val: string): number => {
+        const cleaned = val.replace(/[^\d,.-]/g, "").replace(",", ".");
+        return parseFloat(cleaned) || 0;
+      };
       const payload: any = {
+        creator_uid: user.uid,
         instructor_uid: user.uid,
+        instructor: profile?.full_name || user.displayName || "Instrutor",
         title: formData.title || "Sem título",
         category: formData.category || "Geral",
-        description: formData.cardDescription || "",
-        image_url: image,
-        level: "beginner",
-        price: 0,
+        currency: "MZM",
+        certificatePrice: parseCertificatePrice(
+          formData.certificatePrice || "0,00",
+        ),
+        cardDescription: formData.cardDescription || "",
+        fullDescription: formData.fullDescription || "",
+        language: formData.language || "Português",
+        duration: formData.duration ? `${formData.duration}h` : "0h",
+        learningOutcomes: Array.isArray(formData.learningOutcomes)
+          ? formData.learningOutcomes
+              .filter((s) => s && s.trim().length > 0)
+              .slice(0, 12)
+          : [],
+        modules: formData.modules,
+        interactiveExercises: Array.isArray(formData.interactiveExercises)
+          ? formData.interactiveExercises
+          : [],
+        imageUrl: image,
+        status: "Rascunho",
+        rating: 0,
+        reviewCount: 0,
+        relevanceScore: 0,
+        badgeColor: "blue",
+        isActive: false,
+        approvalStatus: "pending", // Novos cursos começam pendentes de aprovação
+        updatedAt: serverTimestamp(),
       };
 
       if (id) {
-        // Atualizar curso existente
-        await api.put(`/courses/${id}`, payload);
+        await updateDoc(doc(db, "courses", id), payload);
       } else {
-        // Criar novo curso
-        await api.post("/courses", payload);
+        const ref = collection(db, "courses");
+        await addDoc(ref, { ...payload, createdAt: serverTimestamp() });
       }
 
       showToast("Curso salvo com sucesso!", "success");
-      setTimeout(() => navigate("/instrutor/cursos"), 1500);
+      navigate("/instrutor/cursos");
     } catch (e) {
       console.error("Erro ao salvar curso:", e);
       showToast("Não foi possível salvar o curso.", "error");
@@ -1572,6 +1423,31 @@ const CourseEditorPage: React.FC = () => {
                       </SelectListBox>
                     </SelectPopover>
                   </Select>
+
+                  <InputGroup
+                    label="Preço do Certificado (MZM)"
+                    help="Defina o valor do certificado (0 = gratuito)."
+                  >
+                    <div className="relative">
+                      <input
+                        type="number"
+                        value={formData.certificatePrice.replace(",", ".")}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            certificatePrice: e.target.value.replace(".", ","),
+                          })
+                        }
+                        placeholder="250"
+                        min="0"
+                        required
+                        className="w-full pl-4 pr-16 py-3 bg-[#262626] border border-gray-700 rounded-xl text-white placeholder-gray-600 focus:ring-2 focus:ring-brand-green/30 focus:border-brand-green outline-none"
+                      />
+                      <div className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-black text-gray-500 uppercase">
+                        MZM
+                      </div>
+                    </div>
+                  </InputGroup>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
@@ -1777,8 +1653,7 @@ const CourseEditorPage: React.FC = () => {
                             placeholder={
                               ex.type === "quiz"
                                 ? "Título do Quiz"
-                                : ex.type === "dragdrop" ||
-                                    ex.type === "matching"
+                                : ex.type === "dragdrop" || ex.type === "matching"
                                   ? "Título do Arrastar & Soltar/Correspondência"
                                   : ex.type === "truefalse"
                                     ? "Título de Verdadeiro/Falso"
@@ -1787,25 +1662,17 @@ const CourseEditorPage: React.FC = () => {
                             className="font-bold text-slate-800 bg-transparent outline-none focus:border-b border-brand-green flex-1"
                           />
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase">
-                              Vincular à aula:
-                            </span>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase">Vincular à aula:</span>
                             <select
                               value={ex.lessonId || ""}
-                              onChange={(e) =>
-                                updateExercise(ex.id, {
-                                  lessonId: e.target.value,
-                                })
-                              }
+                              onChange={(e) => updateExercise(ex.id, { lessonId: e.target.value })}
                               className="text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1 outline-none focus:border-brand-green"
                             >
                               <option value="">(Nenhuma / Geral)</option>
-                              {formData.modules.map((m) => (
+                              {formData.modules.map(m => (
                                 <optgroup key={m.id} label={m.title}>
-                                  {m.lessons.map((l) => (
-                                    <option key={l.id} value={l.id}>
-                                      {l.title}
-                                    </option>
+                                  {m.lessons.map(l => (
+                                    <option key={l.id} value={l.id}>{l.title}</option>
                                   ))}
                                 </optgroup>
                               ))}
@@ -2548,18 +2415,14 @@ const CourseEditorPage: React.FC = () => {
                                     .replace(/[\u0300-\u036f]/g, "")
                                     .replace(/[^a-zA-Z0-9._-]/g, "_");
                                   const filePath = `courses/${id || "temp"}/blocks/${Date.now()}_${sanitizedFileName}`;
-
+                                  
                                   if (isSupabaseConfigured) {
                                     await supabase.storage
                                       .from(SUPABASE_BUCKET)
                                       .upload(filePath, file);
-                                    const { data: signed } =
-                                      await supabase.storage
-                                        .from(SUPABASE_BUCKET)
-                                        .createSignedUrl(
-                                          filePath,
-                                          SUPABASE_SIGNED_TTL,
-                                        );
+                                    const { data: signed } = await supabase.storage
+                                      .from(SUPABASE_BUCKET)
+                                      .createSignedUrl(filePath, SUPABASE_SIGNED_TTL);
                                     return signed?.signedUrl || "";
                                   }
                                   return "";
@@ -2681,6 +2544,12 @@ const CourseEditorPage: React.FC = () => {
                 <p>
                   <span className="font-semibold text-slate-700">Duração:</span>{" "}
                   {formData.duration}h
+                </p>
+                <p>
+                  <span className="font-semibold text-slate-700">
+                    Preço Certificado:
+                  </span>{" "}
+                  {formData.certificatePrice} MZM
                 </p>
                 <p>
                   <span className="font-semibold text-slate-700">

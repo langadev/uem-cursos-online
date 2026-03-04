@@ -1,23 +1,36 @@
 import {
-    Ban,
-    BookOpen,
-    Check,
-    CheckCircle,
-    ExternalLink,
-    FileCheck,
-    Filter,
-    Mail,
-    Search,
-    Star,
-    Users,
-    X,
-    XCircle,
+  Ban,
+  BookOpen,
+  Check,
+  CheckCircle,
+  ExternalLink,
+  FileCheck,
+  Filter,
+  Mail,
+  Search,
+  Star,
+  Users,
+  X,
+  XCircle,
 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import ConfirmationModal from "../../components/ConfirmationModal";
 import AdminLayout from "../../layouts/AdminLayout";
-import api from "../../services/api";
+
+import {
+  addDoc,
+  collection,
+  doc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+} from "firebase/firestore";
+import ConfirmationModal from "../../components/ConfirmationModal";
+import { UserProfile } from "../../contexts/AuthContext";
+import { db } from "../../services/firebase";
+import { isSupabaseConfigured, supabase } from "../../services/supabase";
 
 interface TutorApplication {
   id: string;
@@ -56,42 +69,44 @@ const AdminTutorsPage: React.FC = () => {
   const [rejectingAppId, setRejectingAppId] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadTutors = async () => {
-      try {
-        setLoading(true);
-        const response = await api.get("/users");
-        const users = response.data || [];
-
-        // Filter only instructors
-        const list = users
-          .filter((u: any) => u.role === "instructor")
-          .map(
-            (data: any) =>
-              ({
-                id: data.id,
-                name: data.full_name || "Tutor",
-                email: data.email || "N/A",
-                specialty: data.specialty || "—",
-                courses: typeof data.courses === "number" ? data.courses : 0,
-                students:
-                  typeof data.students === "string" ? data.students : "0",
-                rating: typeof data.rating === "number" ? data.rating : 0,
-                joinedAt: data.created_at
-                  ? new Date(data.created_at).toLocaleDateString()
-                  : "—",
-                status: data.status || "Ativo",
-              }) as ActiveTutor,
-          );
-
+    const q = query(
+      collection(db, "profiles"),
+      where("role", "==", "instructor"),
+    );
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const list = snapshot.docs.map((d) => {
+          const data = d.data() as Partial<UserProfile> & Record<string, any>;
+          const fullName = (data.full_name || "Tutor") as string;
+          const email = (data.email || "N/A") as string;
+          const specialty = (data.specialty ||
+            data.area ||
+            data.category ||
+            "—") as string;
+          const status = (data.status || "Ativo") as "Ativo" | "Suspenso";
+          const joinedAt = data.createdAt?.toDate?.()
+            ? data.createdAt.toDate().toLocaleDateString()
+            : "—";
+          return {
+            id: d.id,
+            name: fullName,
+            email,
+            specialty,
+            courses: typeof data.courses === "number" ? data.courses : 0,
+            students: typeof data.students === "string" ? data.students : "0",
+            rating: typeof data.rating === "number" ? data.rating : 0,
+            joinedAt,
+            status,
+          } as ActiveTutor;
+        });
         setTutors(list.sort((a, b) => a.name.localeCompare(b.name)));
-      } catch (error) {
-        console.error("Erro ao carregar instrutores:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadTutors();
+      },
+      (err) => {
+        console.error("Erro Firestore (tutores):", err);
+      },
+    );
+    return () => unsubscribe();
   }, []);
 
   // Specialties for filter
@@ -130,6 +145,21 @@ const AdminTutorsPage: React.FC = () => {
 
     setTutors([newTutor, ...tutors]);
     setApplications(applications.filter((a) => a.id !== appId));
+
+    // Registar log da aprovação
+    try {
+      await addDoc(collection(db, "admin_logs"), {
+        action: "Candidatura de Tutor Aprovada",
+        details: `${app.name} (${app.email}) foi aprovado como tutor na especialidade de ${app.specialty}`,
+        targetUserName: app.name,
+        targetUserRole: "instructor",
+        timestamp: serverTimestamp(),
+        adminName: "Admin Panel",
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Erro ao registar log:", error);
+    }
   };
 
   const handleReject = async (appId: string) => {
@@ -140,9 +170,28 @@ const AdminTutorsPage: React.FC = () => {
   const handleConfirmReject = async () => {
     if (!rejectingAppId) return;
 
+    const app = applications.find((a) => a.id === rejectingAppId);
+
     setApplications(applications.filter((a) => a.id !== rejectingAppId));
     setIsRejectModalOpen(false);
     setRejectingAppId(null);
+
+    // Registar log da rejeição
+    if (app) {
+      try {
+        await addDoc(collection(db, "admin_logs"), {
+          action: "Candidatura de Tutor Rejeitada",
+          details: `${app.name} (${app.email}) foi rejeitado como tutor`,
+          targetUserName: app.name,
+          targetUserRole: "instructor",
+          timestamp: serverTimestamp(),
+          adminName: "Admin Panel",
+          createdAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error("Erro ao registar log:", error);
+      }
+    }
   };
 
   const handleCancelReject = () => {
@@ -150,17 +199,49 @@ const AdminTutorsPage: React.FC = () => {
     setRejectingAppId(null);
   };
 
+  const logActivity = async (
+    action: string,
+    details: string,
+    targetTutor: ActiveTutor,
+  ) => {
+    try {
+      await addDoc(collection(db, "admin_logs"), {
+        action,
+        details,
+        targetUserId: targetTutor.id,
+        targetUserName: targetTutor.name,
+        targetUserRole: "instructor",
+        timestamp: serverTimestamp(),
+        adminName: "Admin Panel",
+        createdAt: new Date().toISOString(),
+      });
+      console.log("Log registado:", { action, details });
+    } catch (error) {
+      console.error("Erro ao registar log:", error);
+    }
+  };
+
   const handleToggleTutorStatus = async (id: string) => {
     const current = tutors.find((t) => t.id === id);
     if (!current) return;
     const newStatus = current.status === "Ativo" ? "Suspenso" : "Ativo";
     try {
-      await api.put(`/users/${id}`, { status: newStatus });
+      await updateDoc(doc(db, "profiles", id), { status: newStatus });
 
-      // Update local state
-      setTutors(
-        tutors.map((t) => (t.id === id ? { ...t, status: newStatus } : t)),
+      // Registar log da alteração de status
+      await logActivity(
+        "Tutor Suspenso/Ativado",
+        `Status alterado de ${current.status} para ${newStatus}`,
+        current,
       );
+
+      if (isSupabaseConfigured) {
+        await supabase.from("profiles").upsert({
+          id,
+          status: newStatus,
+          last_sync: new Date().toISOString(),
+        });
+      }
     } catch (e) {
       console.error("Erro ao atualizar status do tutor:", e);
     }
@@ -513,7 +594,7 @@ const TutorApplicationRow: React.FC<{
         <button
           onClick={onApprove}
           className="p-2.5 bg-white text-brand-green border border-emerald-100 rounded-xl hover:bg-brand-green hover:text-white transition-all shadow-sm active:scale-95"
-          title="Aprovar Tutor"
+          title="Aprovar Instrutor"
         >
           <CheckCircle size={18} />
         </button>

@@ -1,3 +1,9 @@
+import React, { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import logo from "../public/login-image.jpg";
+// Added Check to the imports from lucide-react
+import { signInWithEmailAndPassword, signInWithPopup } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 import {
     AlertCircle,
     ArrowRight,
@@ -8,11 +14,8 @@ import {
     Lock,
     Mail,
 } from "lucide-react";
-import React, { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import logo from "../public/login-image.jpg";
-import { apiClient } from "../services/api";
+import { auth, db, googleProvider } from "../services/firebase";
 import { DEFAULT_DASHBOARD, isValidRole } from "../utils/routeProtection";
 
 const LoginPage: React.FC = () => {
@@ -24,7 +27,7 @@ const LoginPage: React.FC = () => {
 
   const navigate = useNavigate();
   const location = useLocation();
-  const { profile, loading: authLoading, refreshProfile } = useAuth();
+  const { user, profile, loading: authLoading } = useAuth();
 
   /**
    * Redireciona o utilizador para o dashboard apropriado conforme o seu role,
@@ -49,10 +52,26 @@ const LoginPage: React.FC = () => {
 
   // Redireciona conforme o papel quando o perfil estiver disponível
   useEffect(() => {
-    if (!authLoading && profile?.role) {
+    if (!authLoading && user && profile?.role) {
       redirectToDashboard(profile.role);
     }
-  }, [profile, authLoading, navigate]);
+  }, [user, profile, authLoading, navigate]);
+
+  /**
+   * Obtém o role do utilizador após o login
+   */
+  const getUserRoleAfterLogin = async (userId: string): Promise<string> => {
+    try {
+      const snap = await getDoc(doc(db, "profiles", userId));
+      if (snap.exists()) {
+        const data = snap.data() as any;
+        return data?.role || "student";
+      }
+    } catch (err) {
+      console.error("Erro ao obter role do utilizador:", err);
+    }
+    return "student"; // Fallback padrão
+  };
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,22 +79,27 @@ const LoginPage: React.FC = () => {
     setError(null);
 
     try {
-      console.log("🔐 Fazendo login com email e senha...");
-      const result = await apiClient.loginWithPassword(email, password);
+      await signInWithEmailAndPassword(auth, email, password);
+      const cu = auth.currentUser;
 
-      if (result.token && result.user) {
-        console.log("✅ Login bem-sucedido:", result.user);
-        // AuthContext será atualizado automaticamente
-        await refreshProfile?.();
-        redirectToDashboard(result.user.role);
+      if (cu) {
+        const role = await getUserRoleAfterLogin(cu.uid);
+        redirectToDashboard(role);
+      } else {
+        navigate("/", { replace: true });
       }
     } catch (err: any) {
-      console.error("❌ Erro de login:", err);
+      console.error("Erro de login:", err);
 
-      if (err.response?.status === 401) {
-        setError("Email ou senha incorretos.");
-      } else if (err.response?.status === 400) {
-        setError(err.response.data?.error || "Dados inválidos.");
+      if (
+        err.code === "auth/invalid-credential" ||
+        err.code === "auth/wrong-password"
+      ) {
+        setError("E-mail ou senha incorretos.");
+      } else if (err.code === "auth/user-not-found") {
+        setError("Utilizador não encontrado.");
+      } else if (err.code === "auth/too-many-requests") {
+        setError("Demasiadas tentativas. Tente novamente mais tarde.");
       } else {
         setError("Erro ao tentar entrar. Verifique sua conexão.");
       }
@@ -84,7 +108,32 @@ const LoginPage: React.FC = () => {
     }
   };
 
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
+    setError(null);
 
+    try {
+      await signInWithPopup(auth, googleProvider);
+      const cu = auth.currentUser;
+
+      if (cu) {
+        const role = await getUserRoleAfterLogin(cu.uid);
+        redirectToDashboard(role);
+      } else {
+        navigate("/", { replace: true });
+      }
+    } catch (err: any) {
+      console.error("Erro de login com Google:", err);
+
+      if (err.code === "auth/popup-closed-by-user") {
+        setError("Login cancelado.");
+      } else {
+        setError("Falha na autenticação com o Google.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   if (authLoading) {
     return (
@@ -105,7 +154,7 @@ const LoginPage: React.FC = () => {
             alt="Students"
             className="absolute inset-0 w-full h-full object-cover opacity-40 grayscale z-0"
           />
-
+          
           <div className="relative z-10">
             <h2 className="text-4xl font-extrabold mb-4 leading-tight">
               Bem-vindo de volta!
@@ -141,7 +190,26 @@ const LoginPage: React.FC = () => {
             </div>
           )}
 
+          <button
+            onClick={handleGoogleLogin}
+            disabled={isLoading}
+            className="w-full flex items-center justify-center gap-3 py-3.5 border border-gray-200 rounded-xl hover:bg-gray-50 transition-all text-sm font-bold text-gray-600 disabled:opacity-50 mb-8 shadow-sm"
+          >
+            <img
+              src="https://www.svgrepo.com/show/475656/google-color.svg"
+              alt="Google"
+              className="w-5 h-5"
+            />
+            Entrar com Google
+          </button>
 
+          <div className="relative flex py-3 items-center mb-8">
+            <div className="flex-grow border-t border-gray-100"></div>
+            <span className="flex-shrink-0 mx-4 text-gray-300 text-[10px] font-black uppercase tracking-widest">
+              ou e-mail
+            </span>
+            <div className="flex-grow border-t border-gray-100"></div>
+          </div>
 
           <form onSubmit={handleEmailLogin} className="space-y-6">
             <div className="space-y-2">

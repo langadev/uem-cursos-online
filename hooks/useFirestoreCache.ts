@@ -1,15 +1,6 @@
 import { useCallback, useRef } from "react";
 
-/**
- * Hook de Cache com TTL para Firestore Queries
- * Previne queries repetidas em curto espaço de tempo
- *
- * Uso:
- * const cached = useFirestoreCache();
- * const data = await cached.get('tutors_key', async () => {
- *   return await getDocs(query(...));
- * });
- */
+
 
 interface CacheEntry<T> {
   data: T;

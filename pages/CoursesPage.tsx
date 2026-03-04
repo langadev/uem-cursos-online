@@ -1,8 +1,9 @@
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { BookOpen, Filter, Loader, Search, X } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import CourseCard from "../components/CourseCard";
 import { cacheService } from "../services/cacheService";
-import { apiClient } from "../services/api";
+import { db } from "../services/firebase";
 import { Course } from "../types";
 
 const CoursesPage: React.FC = () => {
@@ -17,68 +18,75 @@ const CoursesPage: React.FC = () => {
   const ratingsUpdateTimeRef = useRef<number>(0);
 
   useEffect(() => {
-    const loadCourses = async () => {
-      try {
-        // Tenta recuperar do cache primeiro
-        const cachedCourses = cacheService.get<Course[]>(CACHE_KEY);
-        if (cachedCourses && cachedCourses.length > 0) {
-          setCourses(cachedCourses);
-          console.log("Cursos carregados do cache");
-        }
+    // Tenta recuperar do cache primeiro
+    const cachedCourses = cacheService.get<Course[]>(CACHE_KEY);
+    if (cachedCourses && cachedCourses.length > 0) {
+      setCourses(cachedCourses);
+      setLoading(false);
+      console.log("Cursos carregados do cache");
+    }
 
-        // Carrega todos os cursos da API MySQL
-        const allCourses = await apiClient.fetchAllCourses();
+    // Carrega categorias do Firebase
+    const categoriesRef = collection(db, "categories");
+    const unsubCategories = onSnapshot(
+      categoriesRef,
+      (snapshot) => {
+        const categoryList: string[] = ["Todos"];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          categoryList.push(data.name);
+        });
+        setCategories(categoryList.sort());
+        console.log("Categorias carregadas:", categoryList);
+      },
+      (error) => {
+        console.error("Erro ao carregar categorias:", error);
+      },
+    );
 
-        // Extrai categorias únicas
-        const uniqueCategories = new Set(
-          allCourses
-            .map((c: any) => c.category)
-            .filter(Boolean)
-        );
-        setCategories(["Todos", ...Array.from(uniqueCategories).sort()]);
-        console.log("Categorias carregadas:", Array.from(uniqueCategories));
-
-        // Transforma dados da API
-        const transformedCourses: Course[] = allCourses
-          .filter(c => c.is_active)
-          .map((data: any) => ({
-            id: data.id,
-            title: data.title || "Sem título",
-            instructor: data.instructor_name || "Professor",
-            category: data.category || "Geral",
-            rating: typeof data.rating === "number" ? data.rating : 0,
-            reviewCount: 0,
-            duration: `${data.duration_hours || 0}h`,
-            relevanceScore: data.rating || 0,
+    // Listener em tempo real para cursos (atualiza sempre que há mudanças)
+    const q = query(collection(db, "courses"), where("isActive", "==", true));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list: Course[] = snap.docs.map((d) => {
+          const data: any = d.data();
+          return {
+            id: d.id,
+            title: data?.title || "Sem título",
+            instructor: data?.instructor || "",
+            category: data?.category || "Geral",
+            rating: typeof data?.rating === "number" ? data.rating : 0,
+            reviewCount:
+              typeof data?.reviewCount === "number" ? data.reviewCount : 0,
+            duration: data?.duration || "0h",
+            relevanceScore:
+              typeof data?.relevanceScore === "number"
+                ? data.relevanceScore
+                : 0,
             imageUrl:
-              data.image_url ||
+              data?.imageUrl ||
               "https://images.unsplash.com/photo-1529101091764-c3526daf38fe?w=800&q=80&auto=format&fit=crop",
-            badgeColor: "bg-stone-100 text-stone-800",
-            isActive: true,
-          } as Course));
-
-        setCourses(transformedCourses);
-
-        // Salva no cache
-        ratingsUpdateTimeRef.current = Date.now();
-        cacheService.set(CACHE_KEY, transformedCourses, CACHE_TTL);
-        console.log("Cursos carregados da API MySQL");
-      } catch (error) {
-        console.error("Erro ao carregar cursos:", error);
-        // Tenta usar cache como fallback
-        const cachedCourses = cacheService.get<Course[]>(CACHE_KEY);
-        if (cachedCourses) {
-          setCourses(cachedCourses);
-        }
-      } finally {
+            badgeColor: data?.badgeColor || "bg-stone-100 text-stone-800",
+            isActive: data?.isActive !== false,
+          } as Course;
+        });
+        setCourses(list);
         setLoading(false);
-      }
+        // Salva no cache apenas se houve mudança significativa
+        ratingsUpdateTimeRef.current = Date.now();
+        cacheService.set(CACHE_KEY, list, CACHE_TTL);
+        console.log("Cursos atualizados em tempo real");
+      },
+      (error) => {
+        console.error("Erro ao buscar cursos:", error);
+        setLoading(false);
+      },
+    );
+    return () => {
+      unsub();
+      unsubCategories();
     };
-
-    loadCourses();
-    // Recarrega a cada 5 minutos
-    const interval = setInterval(loadCourses, 5 * 60 * 1000);
-    return () => clearInterval(interval);
   }, []);
 
   // Aplica filtros e ordenação

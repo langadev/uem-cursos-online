@@ -180,7 +180,8 @@ const CommunityPage: React.FC = () => {
           const authorName = await fetchUserName(uid);
           return {
             id: doc.id,
-            author: data?.user_name || data?.author || authorName || "Tutor",
+            author:
+              data?.user_name || data?.author || authorName || "Instrutor",
             authorUid: uid,
             avatar:
               data?.avatar ||
@@ -240,7 +241,7 @@ const CommunityPage: React.FC = () => {
 
     setIsCreatingTopic(true);
     try {
-      const name = profile?.full_name || user.displayName || "Tutor";
+      const name = profile?.full_name || user.displayName || "Instrutor";
       await addDoc(collection(db, "instructor-community-topics"), {
         title: newTopic.title.trim(),
         content: newTopic.content.trim(),
@@ -276,7 +277,7 @@ const CommunityPage: React.FC = () => {
 
     setIsAddingReply(true);
     try {
-      const name = profile?.full_name || user.displayName || "Tutor";
+      const name = profile?.full_name || user.displayName || "Instrutor";
       await addDoc(collection(db, "instructor-community-replies"), {
         topic_id: selectedTopic.id,
         content: newReply.trim(),
@@ -549,7 +550,7 @@ const CommunityPage: React.FC = () => {
                     Nova Discussão Tutor
                   </h3>
                   <p className="text-xs text-slate-500 mt-1">
-                    Compartilhe sua visão com outros tutores
+                    Compartilhe sua visão com outros instrutores
                   </p>
                 </div>
                 <button

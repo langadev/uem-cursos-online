@@ -1,14 +1,22 @@
+import {
+    collection,
+    limit,
+    onSnapshot,
+    query,
+    where,
+} from "firebase/firestore";
 import { ArrowRight, Clock, Flame, PlayCircle, Trophy } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import StudentLayout from "../../layouts/StudentLayout";
+import { db } from "../../services/firebase";
 import { EnrolledCourse } from "../../types";
 
 type CourseItem = EnrolledCourse & { lastAccessed?: string };
 
 const DashboardPage: React.FC = () => {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const [items, setItems] = useState<CourseItem[]>([]);
   const [hoursWeek, setHoursWeek] = useState("0h 0m");
   const [certCount, setCertCount] = useState(0);
@@ -16,21 +24,324 @@ const DashboardPage: React.FC = () => {
   const [recommended, setRecommended] = useState<any[]>([]);
 
   useEffect(() => {
-    // TODO: Implementar carregamento de cursos via MySQL API
-    // Por enquanto, deixar vazio para evitar erros de Firebase
-    setItems([]);
-    setHoursWeek("0h 0m");
-    setCertCount(0);
-    setStreakDays(0);
-  }, [profile]);
+    if (!user?.uid) {
+      setItems([]);
+      setHoursWeek("0h 0m");
+      setCertCount(0);
+      setStreakDays(0);
+      return;
+    }
 
-  // Placeholder para dados que virão da API MySQL
-  const lastCourse = null; // TODO: Carregar do endpoint /api/enrollments/my-courses
+    let enrollUnsubA: (() => void) | null = null;
+    let enrollUnsubB: (() => void) | null = null;
+    let courseUnsubs: Array<() => void> = [];
+    let subsUnsubs: Array<() => void> = [];
+    let recUnsub: (() => void) | null = null;
+
+    const enrollsMap = new Map<
+      string,
+      {
+        ts?: Date;
+        title?: string;
+        imageUrl?: string;
+        instructor?: string;
+        category?: string;
+      }
+    >();
+    const coursesMap = new Map<string, any>();
+    const progressMap = new Map<
+      string,
+      { completed: number; total: number; lastTs?: Date }
+    >();
+
+    const recompute = () => {
+      const list: CourseItem[] = [];
+      for (const [cid, course] of coursesMap.entries()) {
+        const totalLessons = Array.isArray(course?.modules)
+          ? course.modules.reduce(
+              (acc: number, m: any) =>
+                acc + (Array.isArray(m?.lessons) ? m.lessons.length : 0),
+              0,
+            )
+          : course?.totalLessons || 0;
+        const prog = progressMap.get(cid) || {
+          completed: 0,
+          total: totalLessons,
+        };
+        const progress =
+          totalLessons > 0
+            ? Math.min(100, Math.round((prog.completed / totalLessons) * 100))
+            : 0;
+        const lastTs = prog.lastTs || enrollsMap.get(cid)?.ts;
+        const lastAccessed = lastTs
+          ? new Intl.RelativeTimeFormat("pt-PT", { numeric: "auto" }).format(
+              Math.round((lastTs.getTime() - Date.now()) / 3600000),
+              "hour",
+            )
+          : undefined;
+        list.push({
+          id: cid,
+          title: course?.title || "Curso",
+          category: course?.category || "Geral",
+          imageUrl:
+            course?.imageUrl ||
+            course?.image ||
+            "https://via.placeholder.com/320x180.png?text=Curso",
+          instructor: course?.instructor || "Tutor",
+          progress,
+          totalLessons,
+          completedLessons: prog.completed,
+          lastAccessed,
+        } as CourseItem);
+      }
+      // Fallback para cursos que ainda não carregaram do Firestore, usando metadados da matrícula
+      for (const [cid, e] of enrollsMap.entries()) {
+        if (!coursesMap.has(cid)) {
+          const lastAccessed = e.ts
+            ? new Intl.RelativeTimeFormat("pt-PT", { numeric: "auto" }).format(
+                Math.round((e.ts.getTime() - Date.now()) / 3600000),
+                "hour",
+              )
+            : undefined;
+          list.push({
+            id: cid,
+            title: e.title || "Curso",
+            category: e.category || "Geral",
+            imageUrl:
+              e.imageUrl ||
+              "https://via.placeholder.com/320x180.png?text=Curso",
+            instructor: e.instructor || "Tutor",
+            progress: 0,
+            totalLessons: 0,
+            completedLessons: 0,
+            lastAccessed,
+          } as CourseItem);
+        }
+      }
+      list.sort((a, b) => {
+        const aTs = (
+          progressMap.get(a.id)?.lastTs ||
+          enrollsMap.get(a.id)?.ts ||
+          new Date(0)
+        ).getTime();
+        const bTs = (
+          progressMap.get(b.id)?.lastTs ||
+          enrollsMap.get(b.id)?.ts ||
+          new Date(0)
+        ).getTime();
+        return bTs - aTs;
+      });
+      setItems(list);
+      setCertCount(list.filter((c) => c.progress === 100).length);
+    };
+
+    const subscribeCoursesAndProgress = (courseIds: string[]) => {
+      courseUnsubs.forEach((u) => u());
+      courseUnsubs = [];
+      subsUnsubs.forEach((u) => u());
+      subsUnsubs = [];
+      if (courseIds.length === 0) {
+        setItems([]);
+        return;
+      }
+      const chunk = (arr: string[], size: number) =>
+        Array.from({ length: Math.ceil(arr.length / size) }, (_, i) =>
+          arr.slice(i * size, i * size + size),
+        );
+      const chunks = chunk(courseIds, 10);
+      const since7 = Date.now() - 7 * 24 * 3600 * 1000;
+      const daysSet = new Set<string>();
+      let subsCountWeek = 0;
+
+      chunks.forEach((ids) => {
+        const qC = query(
+          collection(db, "courses"),
+          where("__name__", "in", ids),
+        );
+        const uc = onSnapshot(qC, (snap) => {
+          snap.docs.forEach((d) => coursesMap.set(d.id, d.data()));
+          recompute();
+        });
+        courseUnsubs.push(uc);
+
+        // Procurar submissões (uploads de exercícios)
+        const qS = query(
+          collection(db, "submissions"),
+          where("user_uid", "==", user.uid),
+          where("course_id", "in", ids),
+        );
+        const us = onSnapshot(qS, (snap) => {
+          const byCourse = new Map<string, Set<string>>();
+          const lastByCourse = new Map<string, Date>();
+          snap.docs.forEach((d) => {
+            const data: any = d.data();
+            const cid = data?.course_id || data?.courseId;
+            const lid = data?.lesson_id || data?.lessonId || d.id;
+            if (!cid) return;
+            if (!byCourse.has(cid)) byCourse.set(cid, new Set());
+            byCourse.get(cid)!.add(String(lid));
+            const ts: Date | null = data?.submittedAt?.toDate
+              ? data.submittedAt.toDate()
+              : data?.createdAt?.toDate
+                ? data.createdAt.toDate()
+                : null;
+            if (ts) {
+              const prev = lastByCourse.get(cid);
+              if (!prev || ts.getTime() > prev.getTime())
+                lastByCourse.set(cid, ts);
+              if (ts.getTime() >= since7) {
+                subsCountWeek += 1;
+                daysSet.add(ts.toISOString().slice(0, 10));
+              }
+            }
+          });
+          ids.forEach((cid) => {
+            const completed = byCourse.get(cid)?.size || 0;
+            const total = Array.isArray(coursesMap.get(cid)?.modules)
+              ? coursesMap
+                  .get(cid)
+                  .modules.reduce(
+                    (acc: number, m: any) =>
+                      acc + (Array.isArray(m?.lessons) ? m.lessons.length : 0),
+                    0,
+                  )
+              : coursesMap.get(cid)?.totalLessons || 0;
+            progressMap.set(cid, {
+              completed,
+              total,
+              lastTs: lastByCourse.get(cid),
+            });
+          });
+          recompute();
+        });
+        subsUnsubs.push(us);
+
+        // Procurar aulas marcadas como concluídas (lesson-completions) ✅ NOVO
+        const qLC = query(
+          collection(db, "lesson-completions"),
+          where("user_uid", "==", user.uid),
+          where("course_id", "in", ids),
+        );
+        const ulc = onSnapshot(qLC, (snap) => {
+          const byCourse = new Map<string, Set<string>>();
+          const lastByCourse = new Map<string, Date>();
+          snap.docs.forEach((d) => {
+            const data: any = d.data();
+            const cid = data?.course_id;
+            const lid = data?.lesson_id;
+            if (!cid || !lid) return;
+            if (!byCourse.has(cid)) byCourse.set(cid, new Set());
+            byCourse.get(cid)!.add(String(lid));
+            const ts: Date | null = data?.completedAt?.toDate
+              ? data.completedAt.toDate()
+              : null;
+            if (ts) {
+              const prev = lastByCourse.get(cid);
+              if (!prev || ts.getTime() > prev.getTime())
+                lastByCourse.set(cid, ts);
+              if (ts.getTime() >= since7) {
+                subsCountWeek += 1;
+                daysSet.add(ts.toISOString().slice(0, 10));
+              }
+            }
+          });
+          ids.forEach((cid) => {
+            const prevProg = progressMap.get(cid);
+            const completed = byCourse.get(cid)?.size || 0;
+            const total = Array.isArray(coursesMap.get(cid)?.modules)
+              ? coursesMap
+                  .get(cid)
+                  .modules.reduce(
+                    (acc: number, m: any) =>
+                      acc + (Array.isArray(m?.lessons) ? m.lessons.length : 0),
+                    0,
+                  )
+              : coursesMap.get(cid)?.totalLessons || 0;
+            // Usar o máximo entre submissions e lesson-completions
+            const maxCompleted = Math.max(prevProg?.completed || 0, completed);
+            progressMap.set(cid, {
+              completed: maxCompleted,
+              total,
+              lastTs: lastByCourse.get(cid) || prevProg?.lastTs,
+            });
+          });
+          recompute();
+        });
+        subsUnsubs.push(ulc);
+      });
+    };
+
+    const subscribeRecommended = (excludeIds: string[]) => {
+      if (recUnsub) {
+        recUnsub();
+        recUnsub = null;
+      }
+      const qR = query(collection(db, "courses"), limit(20));
+      recUnsub = onSnapshot(qR, (snap) => {
+        const rec: any[] = [];
+        snap.docs.forEach((d) => {
+          if (excludeIds.includes(d.id)) return;
+          const data: any = d.data();
+          rec.push({ id: d.id, ...data });
+        });
+        setRecommended(rec.slice(0, 6));
+      });
+    };
+
+    const enrollHandler = (snap: any) => {
+      const ids = new Set<string>();
+      snap.docs.forEach((d: any) => {
+        const data: any = d.data();
+        const cid = data?.course_id || data?.courseId;
+        const ts: Date | null = data?.enrolledAt?.toDate
+          ? data.enrolledAt.toDate()
+          : data?.createdAt?.toDate
+            ? data.createdAt.toDate()
+            : null;
+        if (!cid) return;
+        ids.add(cid);
+        const prev = enrollsMap.get(cid) || {};
+        const newTs =
+          ts && (!prev.ts || ts.getTime() > prev.ts.getTime()) ? ts : prev.ts;
+        enrollsMap.set(cid, {
+          ts: newTs,
+          title: data?.course_title || prev.title,
+          imageUrl: data?.imageUrl || prev.imageUrl,
+          instructor: data?.instructor || prev.instructor,
+          category: data?.category || prev.category,
+        });
+      });
+      subscribeCoursesAndProgress(Array.from(ids));
+      subscribeRecommended(Array.from(ids));
+      // recompute immediately using enrollment metadata fallback while course/submission snapshots load
+      recompute();
+    };
+
+    enrollUnsubA = onSnapshot(
+      query(collection(db, "enrollments"), where("user_uid", "==", user.uid)),
+      enrollHandler,
+    );
+    enrollUnsubB = onSnapshot(
+      query(collection(db, "enrollments"), where("userId", "==", user.uid)),
+      enrollHandler,
+    );
+
+    return () => {
+      if (enrollUnsubA) enrollUnsubA();
+      if (enrollUnsubB) enrollUnsubB();
+      courseUnsubs.forEach((u) => u());
+      subsUnsubs.forEach((u) => u());
+      if (recUnsub) recUnsub();
+    };
+  }, [user?.uid]);
+
+  const lastCourse = items[0] || null;
 
   // Extrair o primeiro nome do perfil para a saudação
   const firstName = (
-    profile?.name ||
-    profile?.email?.split("@")[0] ||
+    profile?.full_name ||
+    user?.displayName ||
+    user?.email?.split("@")[0] ||
     "Utilizador"
   ).split(" ")[0];
 

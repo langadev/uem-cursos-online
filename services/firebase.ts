@@ -1,24 +1,24 @@
-/**
- * Firebase Service - DESATIVADO
- * Sistema agora usa MySQL + JWT apenas
- * Este ficheiro é mantido para compatibilidade com imports existentes
- * mas todos os valores são nulos/vazios
- */
 
-// Mock objects para evitar erros de tipos
-export const db = null;
-export const storage = null;
-export const auth = null;
-export const googleProvider = null;
+import { initializeApp } from "firebase/app";
+import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
-export const collection = () => null;
-export const query = () => null;
-export const where = () => null;
-export const onSnapshot = () => () => {};
-export const getDocs = async () => ({ docs: [] });
-export const doc = () => null;
-export const setDoc = async () => {};
-export const serverTimestamp = () => null;
-export const limit = () => null;
+// Configuração fornecida pelo usuário
+const firebaseConfig = {
+  apiKey: "AIzaSyBWRjMA0aQsbo6Cq-yA5xkFp5ny7n6U_2o",
+  authDomain: "edu-prime-ead96.firebaseapp.com",
+  projectId: "edu-prime-ead96",
+  storageBucket: "edu-prime-ead96.appspot.com",
+  messagingSenderId: "656150019016",
+  appId: "1:656150019016:web:f98b5d49e85105d8689efd"
+};
 
-export default null;
+// Inicialização
+const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const storage = getStorage(app);
+export const googleProvider = new GoogleAuthProvider();
+
+export default app;

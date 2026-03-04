@@ -1,10 +1,11 @@
 import React, { useEffect } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { auth } from "../services/firebase";
 import {
-  DEFAULT_DASHBOARD,
-  isValidRole,
-  logUnauthorizedAccess,
+    DEFAULT_DASHBOARD,
+    isValidRole,
+    logUnauthorizedAccess,
 } from "../utils/routeProtection";
 
 interface ProtectedRouteProps {
@@ -16,8 +17,9 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   children,
   allowedRole,
 }) => {
-  const { profile, loading } = useAuth();
-  const isAuthenticated = !!profile;
+  const { user, profile, loading } = useAuth();
+  const currentUser = auth.currentUser;
+  const isAuthenticated = !!(user || currentUser);
   const location = useLocation();
 
   console.log("🚪 [ProtectedRoute] Verificação de acesso:", {
@@ -25,7 +27,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     allowedRole,
     loading,
     authenticated: isAuthenticated,
-    userUid: profile?.uid,
+    userUid: user?.uid || currentUser?.uid,
     profileRole: profile?.role,
     profileLoaded: !!profile,
   });
@@ -39,15 +41,15 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
       profile.role !== allowedRole &&
       allowedRole !== "student"
     ) {
-      logUnauthorizedAccess(location.pathname, profile.role, profile?.uid);
+      logUnauthorizedAccess(location.pathname, profile.role, user?.uid);
     }
   }, [
     loading,
     isAuthenticated,
     profile?.role,
-    profile?.uid,
     allowedRole,
     location.pathname,
+    user?.uid,
   ]);
 
   // Enquanto carrega, mostra spinner

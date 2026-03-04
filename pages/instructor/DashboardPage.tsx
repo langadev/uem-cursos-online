@@ -16,7 +16,7 @@ import {
     Filter,
     Star,
     TrendingUp,
-    Users,
+    Users
 } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../contexts/AuthContext";
@@ -440,7 +440,7 @@ const InstructorDashboardPage: React.FC = () => {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900">
-              Dashboard do Tutor
+              Dashboard do Instrutor
             </h1>
             <p className="text-slate-500 mt-1">
               Veja como está o desempenho dos seus cursos hoje.
@@ -461,7 +461,7 @@ const InstructorDashboardPage: React.FC = () => {
 
         {/* Stats Grid - 5 Cards (Including Active Courses) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-          {/* REMOVIDO: Cards financeiros - O tutor não gerencia finanças */}
+          {/* REMOVIDO: Cards financeiros - O instrutor não gerencia finanças */}
           {/*
           <InstructorStatCard
             label="Receita Total"
