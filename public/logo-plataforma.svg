@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Camada_2" data-name="Camada 2" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1743.91 740.42">
+  <defs>
+    <style>
+      .cls-1 {
+        letter-spacing: 0em;
+      }
+
+      .cls-2 {
+        letter-spacing: -.03em;
+      }
+
+      .cls-3 {
+        font-family: Montserrat-Black, Montserrat;
+        font-size: 172.89px;
+        font-weight: 800;
+      }
+
+      .cls-3, .cls-4 {
+        fill: #fff;
+      }
+
+      .cls-5 {
+        fill: url(#Gradiente_sem_nome);
+      }
+
+      .cls-4 {
+        font-family: Montserrat-Medium, Montserrat;
+        font-size: 138.34px;
+        font-weight: 500;
+      }
+
+      .cls-6, .cls-7 {
+        fill: #0a7b43;
+      }
+
+      .cls-7 {
+        font-family: Montserrat-Bold, Montserrat;
+        font-size: 66.3px;
+        font-weight: 700;
+      }
+
+      .cls-8 {
+        stroke-width: 5.53px;
+      }
+
+      .cls-8, .cls-9 {
+        fill: #008453;
+        fill-rule: evenodd;
+        stroke: #f7d45c;
+        stroke-miterlimit: 2.61;
+      }
+
+      .cls-9 {
+        stroke-width: 5.42px;
+      }
+
+      .cls-10 {
+        fill: #fdff9f;
+      }
+
+      .cls-11 {
+        letter-spacing: 0em;
+      }
+
+      .cls-12 {
+        letter-spacing: 0em;
+      }
+    </style>
+    <linearGradient id="Gradiente_sem_nome" data-name="Gradiente sem nome" x1="651.36" y1="202.16" x2="1743.91" y2="202.16" gradientTransform="translate(0 740.16) scale(1 -1)" gradientUnits="userSpaceOnUse">
+      <stop offset=".07" stop-color="#0a7b43"/>
+      <stop offset=".51" stop-color="#f7df87"/>
+      <stop offset="1" stop-color="#ebb308"/>
+    </linearGradient>
+  </defs>
+  <g id="Camada_1-2" data-name="Camada 1-2">
+    <path class="cls-6" d="m1628.02,139.6h-781.58c-59.52,0-122.9-52.06-151.81-79.11-5.01-5.62-10.37-10.93-16.04-15.89l-.02-.02h0C646.8,16.83,605.23,0,559.73,0H180.69C80.9,0,0,80.9,0,180.69v379.04c0,99.79,80.9,180.69,180.69,180.69h379.04c46.2,0,88.34-17.35,120.29-45.87l-1.45,2.44s87.47-95.02,167.88-95.02c11.21,0,19-.42,24.13-1.15h757.45c63.99,0,115.87-51.87,115.87-115.87v-229.48c0-63.99-51.87-115.87-115.87-115.87h-.01ZM556,722.19H184.43c-91.79,0-166.2-74.41-166.2-166.2V184.42c0-91.79,74.41-166.2,166.2-166.2h371.57c91.79,0,166.2,74.41,166.2,166.2v371.57c0,91.79-74.41,166.2-166.2,166.2Z"/>
+    <path class="cls-10" d="m1743.89,335.35s-1.65,151.09-470.81,143.14c-469.17-7.95-583.93,176.99-583.93,176.99l77.65-49.76,371.09-67.71h416.15l189.84-104.58v-98.07h0Z"/>
+    <path class="cls-5" d="m1743.89,360.53s-.32,137.83-474.79,132.53c-474.47-5.3-579.95,162.41-579.95,162.41l-37.79,60s22.23-14.12,35.82-27.04c13.58-12.92,49.29-44.44,76.98-59.75,27.68-15.31,59.2-25.73,88.65-26.8s775.23-1.07,775.23-1.07c0,0,48.67,1.5,81.3-33.32,32.62-34.82,34.57-65.77,34.57-82.55v-124.42h-.02Z"/>
+    <g>
+      <path class="cls-9" d="m122.31,187.98v52.34l113.8,114.6,58.42-.03,71.73-72.19c2.69-1.44,4.12-2.52,5.97-1.2l73.28,72.6,58.85.43,112.49-113.62-.29-50.51-111.98,111.78-4.3,3.76-47.86.04c-3.69-1.08-3.32.38-3.07-4.4l45.9-45.96v-24.09h-23.11l-45.66,45.79c-4.91,1.37-3.72,1.19-5.38-2.76l-.2-46.99,116.43-117.6h-52.31l-110.17,110.89c-2.72,2.34-3.96,4.06-6.99,1.92l-112.38-112.81h-53.52l116.74,117.46-.04,49.78-24.92,26.23-3.23,2.99-47.23.09c-1.84.1-4.9-2.76-5.91-3.84l-115.07-114.69h0Z"/>
+      <path class="cls-8" d="m666.64,521.45l-143.39-143.51-57.42-.08-83.35,83.26.44,169.33,137.13-137.48c3.02-2.48,5.74-3.49,8.19-1.52l138.34,138.15.05-108.14h0Z"/>
+      <path class="cls-8" d="m73.78,521.45l143.39-143.51,57.42-.08,83.35,83.26-.44,169.33-137.13-137.48c-3.02-2.48-5.74-3.49-8.19-1.52l-138.34,138.13-.05-108.14h0Z"/>
+    </g>
+  </g>
+  <text class="cls-3" transform="translate(838.05 299.21)"><tspan x="0" y="0">DIGI</tspan><tspan class="cls-2" x="396.78" y="0">T</tspan><tspan class="cls-11" x="503.8" y="0">AL</tspan><tspan class="cls-12" x="0" y="159.17">P</tspan><tspan x="126.73" y="159.17">RO</tspan></text>
+  <text class="cls-4" transform="translate(1279.01 447.06) scale(.93 1)"><tspan x="0" y="0">UEM</tspan></text>
+  <text class="cls-7" transform="translate(940.86 577.16) scale(.93 1)"><tspan class="cls-1" x="0" y="0">C</tspan><tspan x="48.33" y="0">URSOS ONLINE</tspan></text>
+</svg>
