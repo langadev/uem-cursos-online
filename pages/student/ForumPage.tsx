@@ -235,7 +235,7 @@ const CommunityPage: React.FC = () => {
               Fórum da Comunidade
             </h1>
             <p className="text-gray-500 mt-1">
-              Troque conhecimento com outros estudantes e tutores.
+              Troque conhecimento com outros estudantes.
             </p>
           </div>
           <button

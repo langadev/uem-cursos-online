@@ -35,7 +35,7 @@ const CourseDetailsPage: React.FC = () => {
   const [isEnrolled, setIsEnrolled] = useState(false);
   const [expandAll, setExpandAll] = useState(false);
   const [fallbackModules, setFallbackModules] = useState<any[]>([]);
-  const { user } = useAuth();
+  const { user, profile, loading: profileLoading } = useAuth();
   const [enrolling, setEnrolling] = useState(false);
   const navigate = useNavigate();
   const [enrollmentCount, setEnrollmentCount] = useState(0);
@@ -104,9 +104,10 @@ const CourseDetailsPage: React.FC = () => {
     return () => unsub();
   }, [id]);
 
-  // Buscar dados do instrutor em tempo real
+  // Buscar dados do instrutor em tempo real (somente para instrutores/admins)
   useEffect(() => {
     if (!course?.instructor_uid) return;
+    if (profileLoading || profile?.role === "student") return;
     const ref = doc(db, "profiles", course.instructor_uid);
     const unsub = onSnapshot(ref, (snap) => {
       if (snap.exists()) {
@@ -114,7 +115,7 @@ const CourseDetailsPage: React.FC = () => {
       }
     });
     return () => unsub();
-  }, [course?.instructor_uid]);
+  }, [course?.instructor_uid, profileLoading, profile?.role]);
 
   const normalizedModules = useMemo(() => {
     const raw = (course?.modules ??
@@ -370,12 +371,14 @@ const CourseDetailsPage: React.FC = () => {
                 </span>
               </div>
               <span className="hidden sm:inline text-slate-500">|</span>
+              {(!profileLoading && profile?.role !== "student") && (
               <div className="flex items-center gap-1 text-slate-100">
                 <span className="text-slate-300">Instrutor:</span>
                 <span className="underline decoration-yellow-400/50 underline-offset-4 font-semibold">
                   {course?.instructor || "Instrutor"}
                 </span>
               </div>
+              )}
               <span className="hidden sm:inline text-slate-500">|</span>
               <div className="flex items-center gap-1.5 text-slate-100">
                 <Users className="w-4 h-4" />
@@ -521,23 +524,24 @@ const CourseDetailsPage: React.FC = () => {
               </div>
             </section>
 
-            {/* Instructor */}
-            <section className="bg-white border-t border-gray-100 pt-8">
-              <h2 className="text-2xl font-bold text-gray-900 mb-6">
-                Seu Instrutor
-              </h2>
-              <div className="flex gap-6 items-start">
+            {/* Instructor (hidden from students) */}
+            {(!profileLoading && profile?.role !== "student") && (
+              <section className="bg-white border-t border-gray-100 pt-8">
+                <h2 className="text-2xl font-bold text-gray-900 mb-6">
+                  Seu Instrutor
+                </h2>
+                <div className="flex gap-6 items-start">
                 <img
                   src={
                     instructorData?.avatar_url ||
                     `https://ui-avatars.com/api/?name=${encodeURIComponent(course?.instructor || "Instrutor")}&background=0e7038&color=fff&size=128`
                   }
-                  alt={course?.instructor || "Instrutor"}
+                  alt={(!profileLoading && profile?.role !== "student") ? (course?.instructor || "Instrutor") : ""}
                   className="w-16 h-16 rounded-full object-cover border-4 border-gray-50 shadow-sm"
                 />
                 <div>
                   <h3 className="text-xl font-bold text-gray-900 mb-1">
-                    {course?.instructor || "Instrutor"}
+                    {(!profileLoading && profile?.role !== "student") ? (course?.instructor || "Instrutor") : ""}
                   </h3>
                   <p className="text-brand-green font-medium text-sm mb-3">
                     {instructorData?.profession ||

@@ -18,7 +18,6 @@ const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
   return (
     <Link to={`/cursos/${course.id}`} className="block h-full">
       <div className="bg-white rounded-xl border border-gray-100 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 overflow-hidden flex flex-col h-full group">
-
         {/* Image Container */}
         <div className="relative h-40 w-full overflow-hidden">
           <img
@@ -29,9 +28,7 @@ const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
 
           {/* Badge: Fundo Verde, Texto Branco, Alinhado à Direita */}
           <div className="absolute top-4 right-4">
-            <span
-              className="px-3 py-1 text-xs font-bold rounded-md shadow-md text-white bg-emerald-600"
-            >
+            <span className="px-3 py-1 text-xs font-bold rounded-md shadow-md text-white bg-emerald-600">
               {course.category}
             </span>
           </div>
@@ -45,13 +42,6 @@ const CourseCard: React.FC<CourseCardProps> = ({ course }) => {
           >
             {course.title}
           </h3>
-
-          <p className="text-sm text-gray-500 mb-4">
-            Com{" "}
-            <span className="text-gray-700 font-medium">
-              {course.instructor}
-            </span>
-          </p>
 
           {/* Stats Row */}
           <div className="flex items-center justify-between mt-auto mb-4 text-xs font-medium text-gray-500">

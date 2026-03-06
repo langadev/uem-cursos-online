@@ -96,7 +96,7 @@ const EnrollmentPage: React.FC = () => {
         user_uid: user.uid,
         enrolledAt: serverTimestamp(),
         course_title: course?.title || "",
-        instructor: course?.instructor || "",
+
         instructor_uid: course?.instructor_uid || course?.creator_uid || null,
         imageUrl: course?.imageUrl || "",
         status: "active",
@@ -234,12 +234,7 @@ const EnrollmentPage: React.FC = () => {
                 <h3 className="font-bold text-gray-900 mb-1 line-clamp-2">
                   {course.title}
                 </h3>
-                <p className="text-sm text-gray-500 mb-4">
-                  Tutor:{" "}
-                  <span className="font-medium text-gray-700">
-                    {course.instructor || "Tutor"}
-                  </span>
-                </p>
+
                 <div className="text-xs text-gray-500">
                   Idioma:{" "}
                   <span className="font-semibold text-gray-700">

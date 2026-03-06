@@ -10,13 +10,20 @@ import {
 } from "lucide-react";
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 import { useBranding } from "../contexts/BrandingContext";
 import { useTutors } from "../hooks/useTutors";
 
 const InstructorsPage: React.FC = () => {
+  const { user, profile, loading: authLoading } = useAuth();
   const { tutors, loading, error } = useTutors();
   const navigate = useNavigate();
   const { branding } = useBranding();
+
+  const canView =
+    !authLoading &&
+    profile &&
+    (profile.role === "instructor" || profile.role === "admin");
 
   const handleViewProfile = (uid: string) => {
     navigate(`/tutores/${uid}`);
@@ -61,7 +68,15 @@ const InstructorsPage: React.FC = () => {
 
       {/* Main Grid */}
       <div className="max-w-7xl mx-auto px-6 py-20">
-        {loading && (
+        {!canView && (
+          <div className="min-h-[400px] flex items-center justify-center">
+            <p className="text-gray-500 text-lg">
+              A informação sobre tutores não está disponível.
+            </p>
+          </div>
+        )}
+
+        {canView && loading && (
           <div className="min-h-[400px] flex items-center justify-center">
             <div className="flex flex-col items-center gap-4">
               <div className="w-12 h-12 border-4 border-brand-green border-t-transparent rounded-full animate-spin"></div>
@@ -70,7 +85,7 @@ const InstructorsPage: React.FC = () => {
           </div>
         )}
 
-        {error && (
+        {canView && error && (
           <div className="min-h-[400px] flex items-center justify-center">
             <div className="bg-red-50 border border-red-200 rounded-lg p-8 text-center max-w-md">
               <p className="text-red-800 font-semibold mb-2">
@@ -81,7 +96,7 @@ const InstructorsPage: React.FC = () => {
           </div>
         )}
 
-        {!loading && tutors.length === 0 && (
+        {canView && !loading && tutors.length === 0 && (
           <div className="min-h-[400px] flex items-center justify-center">
             <div className="text-center">
               <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -92,7 +107,7 @@ const InstructorsPage: React.FC = () => {
           </div>
         )}
 
-        {!loading && tutors.length > 0 && (
+        {canView && !loading && tutors.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {tutors.map((tutor) => (
               <div

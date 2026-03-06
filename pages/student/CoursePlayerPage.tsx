@@ -78,8 +78,12 @@ const CoursePlayerPage: React.FC = () => {
   const [remainingTime, setRemainingTime] = useState(0);
   const MIN_READ_TIME = 30; // 30 segundos de permanência mínima na aula
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const [exerciseResults, setExerciseResults] = useState<Record<string, boolean>>({});
-  const [completedExercises, setCompletedExercises] = useState<Set<string>>(new Set());
+  const [exerciseResults, setExerciseResults] = useState<
+    Record<string, boolean>
+  >({});
+  const [completedExercises, setCompletedExercises] = useState<Set<string>>(
+    new Set(),
+  );
 
   const toggleModule = (moduleId: string) => {
     setOpenModules((prev) =>
@@ -495,14 +499,17 @@ const CoursePlayerPage: React.FC = () => {
 
     // Verificar se há exercícios pendentes nesta aula
     const lessonExs = (course?.interactiveExercises || []).filter(
-      (ex: any) => String(ex.lessonId || ex.lesson_id) === String(current.lesson.id)
+      (ex: any) =>
+        String(ex.lessonId || ex.lesson_id) === String(current.lesson.id),
     );
     if (lessonExs.length > 0) {
-      const pendingExs = lessonExs.filter((ex: any) => !completedExercises.has(ex.id));
+      const pendingExs = lessonExs.filter(
+        (ex: any) => !completedExercises.has(ex.id),
+      );
       if (pendingExs.length > 0) {
         showToast(
           "Complete os exercícios interativos antes de concluir esta aula.",
-          "error"
+          "error",
         );
         setActiveTab("interactive");
         return;
@@ -587,7 +594,7 @@ const CoursePlayerPage: React.FC = () => {
         next.add(exId);
         return next;
       });
-      setExerciseResults(prev => ({ ...prev, [exId]: true }));
+      setExerciseResults((prev) => ({ ...prev, [exId]: true }));
 
       // Verificar se já existe para evitar duplicatas (opcional, mas bom ter)
       await addDoc(collection(db, "exercise-completions"), {
@@ -665,7 +672,7 @@ const CoursePlayerPage: React.FC = () => {
           }
         });
         setCompletedExercises(completed);
-        setExerciseResults(prev => ({ ...prev, ...results }));
+        setExerciseResults((prev) => ({ ...prev, ...results }));
       });
 
       return () => {
@@ -1051,16 +1058,25 @@ const CoursePlayerPage: React.FC = () => {
   // Calcular progresso dinâmico
   const progressPercentage = useMemo(() => {
     const totalLessons = allLessons.length;
-    const allExs = Array.isArray(course?.interactiveExercises) ? course.interactiveExercises : [];
+    const allExs = Array.isArray(course?.interactiveExercises)
+      ? course.interactiveExercises
+      : [];
     const totalExs = allExs.length;
-    
+
     if (totalLessons + totalExs === 0) return 0;
-    
+
     const lessonsCount = completedLessons.size;
     const exsCount = completedExercises.size;
-    
-    return Math.round(((lessonsCount + exsCount) / (totalLessons + totalExs)) * 100);
-  }, [allLessons.length, completedLessons.size, course?.interactiveExercises, completedExercises.size]);
+
+    return Math.round(
+      ((lessonsCount + exsCount) / (totalLessons + totalExs)) * 100,
+    );
+  }, [
+    allLessons.length,
+    completedLessons.size,
+    course?.interactiveExercises,
+    completedExercises.size,
+  ]);
 
   const progressWidth = useMemo(() => {
     return Math.max(5, progressPercentage); // mínimo de 5% para visibilidade
@@ -1101,7 +1117,14 @@ const CoursePlayerPage: React.FC = () => {
         }
       })();
     }
-  }, [completedLessons.size, completedExercises.size, allLessons.length, id, user?.uid, isEnrolled]);
+  }, [
+    completedLessons.size,
+    completedExercises.size,
+    allLessons.length,
+    id,
+    user?.uid,
+    isEnrolled,
+  ]);
 
   // Determinar se uma aula está bloqueada (não pode ser acessada)
   const isLessonLocked = (lessonId: string): boolean => {
@@ -1515,13 +1538,26 @@ const CoursePlayerPage: React.FC = () => {
                     const renderText = (text: string) => {
                       if (!text) return null;
                       // Suporte básico para Negrito (**) e Itálico (* ou _)
-                      const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|_[^_]+_)/g);
+                      const parts = text.split(
+                        /(\*\*[^*]+\*\*|\*[^*]+\*|_[^_]+_)/g,
+                      );
                       return parts.map((part, i) => {
                         if (part.startsWith("**") && part.endsWith("**")) {
-                          return <strong key={i} className="font-bold">{part.slice(2, -2)}</strong>;
+                          return (
+                            <strong key={i} className="font-bold">
+                              {part.slice(2, -2)}
+                            </strong>
+                          );
                         }
-                        if ((part.startsWith("*") && part.endsWith("*")) || (part.startsWith("_") && part.endsWith("_"))) {
-                          return <em key={i} className="italic">{part.slice(1, -1)}</em>;
+                        if (
+                          (part.startsWith("*") && part.endsWith("*")) ||
+                          (part.startsWith("_") && part.endsWith("_"))
+                        ) {
+                          return (
+                            <em key={i} className="italic">
+                              {part.slice(1, -1)}
+                            </em>
+                          );
                         }
                         return part;
                       });
@@ -1646,9 +1682,16 @@ const CoursePlayerPage: React.FC = () => {
                                     >
                                       <span className="text-brand-green font-extrabold text-lg min-w-[28px] text-right">
                                         {(() => {
-                                          const listBlocks = blocks.filter((b: any) => b.type === "list-ordered");
-                                          const pos = listBlocks.findIndex((b: any) => b.id === block.id);
-                                          return pos >= 0 ? `${pos + 1}.` : "1.";
+                                          const listBlocks = blocks.filter(
+                                            (b: any) =>
+                                              b.type === "list-ordered",
+                                          );
+                                          const pos = listBlocks.findIndex(
+                                            (b: any) => b.id === block.id,
+                                          );
+                                          return pos >= 0
+                                            ? `${pos + 1}.`
+                                            : "1.";
                                         })()}
                                       </span>
                                       <p className="text-gray-700 text-lg flex-1">
@@ -1886,14 +1929,17 @@ const CoursePlayerPage: React.FC = () => {
 
                 <button
                   onClick={goNext}
-                  disabled={remainingTime > 0 && !completedLessons.has(currentLessonId)}
+                  disabled={
+                    remainingTime > 0 && !completedLessons.has(currentLessonId)
+                  }
                   className={`px-4 py-2 text-sm font-semibold text-white rounded-lg transition-colors flex items-center gap-2 ${
                     remainingTime > 0 && !completedLessons.has(currentLessonId)
                       ? "bg-gray-400 cursor-not-allowed"
                       : "bg-brand-green hover:bg-brand-dark shadow-sm"
                   }`}
                 >
-                  {remainingTime > 0 && !completedLessons.has(currentLessonId) ? (
+                  {remainingTime > 0 &&
+                  !completedLessons.has(currentLessonId) ? (
                     <>
                       <Lock className="w-4 h-4" />
                       Aguarde ({remainingTime}s)
@@ -1983,16 +2029,16 @@ const CoursePlayerPage: React.FC = () => {
                           Status da Aula
                         </span>
                         <span className="text-xs text-gray-500">
-                          {completedLessons.has(current?.lesson?.id || "") 
-                            ? "Parabéns! Você já concluiu esta aula." 
+                          {completedLessons.has(current?.lesson?.id || "")
+                            ? "Parabéns! Você já concluiu esta aula."
                             : "Você ainda não marcou esta aula como concluída."}
                         </span>
                       </div>
                     </div>
                     {completedLessons.has(current?.lesson?.id || "") && (
-                       <span className="text-xs font-black text-brand-green bg-green-100 px-3 py-1 rounded-full uppercase tracking-tighter">
-                         ✓ Aula Concluída
-                       </span>
+                      <span className="text-xs font-black text-brand-green bg-green-100 px-3 py-1 rounded-full uppercase tracking-tighter">
+                        ✓ Aula Concluída
+                      </span>
                     )}
                   </div>
                 </div>
@@ -2172,7 +2218,7 @@ const CoursePlayerPage: React.FC = () => {
                       <div className="relative group">
                         <textarea
                           className="w-full border border-gray-200 rounded-2xl p-4 text-sm focus:outline-none focus:ring-4 focus:ring-brand-green/10 focus:border-brand-green transition-all bg-white shadow-sm resize-none"
-                          placeholder="Tem alguma dúvida sobre esta aula? Pergunte aqui e o tutor ou colegas irão ajudar..."
+                          placeholder="Tem alguma dúvida sobre esta aula? Pergunte aqui e a comunidade irá ajudar..."
                           rows={3}
                           value={newQuestion}
                           onChange={(e) => setNewQuestion(e.target.value)}
@@ -2338,18 +2384,28 @@ const CoursePlayerPage: React.FC = () => {
               )}
               {activeTab === "interactive" && (
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <InteractiveQuiz 
-                    lesson={current?.lesson} 
-                    course={course} 
-                    onExerciseStatusUpdate={(exId: string, ok: boolean, isFinal?: boolean) => {
+                  <InteractiveQuiz
+                    lesson={current?.lesson}
+                    course={course}
+                    onExerciseStatusUpdate={(
+                      exId: string,
+                      ok: boolean,
+                      isFinal?: boolean,
+                    ) => {
                       if (ok) {
                         if (isFinal) {
                           markExerciseAsComplete(exId);
                         } else {
-                          setExerciseResults(prev => ({ ...prev, [exId]: true }));
+                          setExerciseResults((prev) => ({
+                            ...prev,
+                            [exId]: true,
+                          }));
                         }
                       } else {
-                        setExerciseResults(prev => ({ ...prev, [exId]: false }));
+                        setExerciseResults((prev) => ({
+                          ...prev,
+                          [exId]: false,
+                        }));
                       }
                     }}
                     results={exerciseResults}
@@ -2457,11 +2513,17 @@ const CoursePlayerPage: React.FC = () => {
                                     ? ` • ${lesson.duration}`
                                     : ""}
                                   {(() => {
-                                    const lessonExs = (course?.interactiveExercises || []).filter(
-                                      (ex: any) => String(ex.lessonId || ex.lesson_id) === String(lesson.id)
+                                    const lessonExs = (
+                                      course?.interactiveExercises || []
+                                    ).filter(
+                                      (ex: any) =>
+                                        String(ex.lessonId || ex.lesson_id) ===
+                                        String(lesson.id),
                                     );
                                     if (lessonExs.length > 0) {
-                                      const allDone = lessonExs.every((ex: any) => exerciseResults[ex.id]);
+                                      const allDone = lessonExs.every(
+                                        (ex: any) => exerciseResults[ex.id],
+                                      );
                                       if (!allDone) {
                                         return (
                                           <span className="flex items-center gap-1 text-[10px] text-amber-500 font-bold ml-1">
@@ -2507,10 +2569,7 @@ const CoursePlayerPage: React.FC = () => {
           courseTitle={course?.title || "Curso"}
           onSuccess={() => {
             setShowCertificateModal(false);
-            showToast(
-              "Certificado submetido! Aguarde confirmação do tutor.",
-              "success",
-            );
+            showToast("Certificado submetido! Aguarde confirmação.", "success");
           }}
         />
       </div>
@@ -2520,22 +2579,36 @@ const CoursePlayerPage: React.FC = () => {
 
 // --- Sub-components ---
 
-const InteractiveQuiz = ({ course, lesson, onExerciseStatusUpdate, results, showToast, completedList }: any) => {
+const InteractiveQuiz = ({
+  course,
+  lesson,
+  onExerciseStatusUpdate,
+  results,
+  showToast,
+  completedList,
+}: any) => {
   const list = useMemo(() => {
-    const all = Array.isArray(course?.interactiveExercises) ? course.interactiveExercises : [];
+    const all = Array.isArray(course?.interactiveExercises)
+      ? course.interactiveExercises
+      : [];
     // Filtrar exercícios por aula
     const currentLessonId = String(lesson?.id || "");
-    return all.filter((ex: any) => String(ex.lessonId || ex.lesson_id || "") === currentLessonId);
+    return all.filter(
+      (ex: any) =>
+        String(ex.lessonId || ex.lesson_id || "") === currentLessonId,
+    );
   }, [course, lesson]);
 
   const [answers, setAnswers] = useState<Record<string, any>>({});
-  const [checked, setChecked] = useState<Record<string, boolean>>(results || {});
+  const [checked, setChecked] = useState<Record<string, boolean>>(
+    results || {},
+  );
   const [isFinishing, setIsFinishing] = useState(false);
 
   // Sincronizar estado checked com results externos se necessário
   useEffect(() => {
     if (results) {
-      setChecked(prev => ({ ...prev, ...results }));
+      setChecked((prev) => ({ ...prev, ...results }));
     }
   }, [results]);
 
@@ -2547,7 +2620,7 @@ const InteractiveQuiz = ({ course, lesson, onExerciseStatusUpdate, results, show
     );
   }
 
-  const allCompletedInLesson = list.every(ex => checked[ex.id]);
+  const allCompletedInLesson = list.every((ex) => checked[ex.id]);
 
   const handleFinishTest = async () => {
     setIsFinishing(true);
@@ -2559,10 +2632,11 @@ const InteractiveQuiz = ({ course, lesson, onExerciseStatusUpdate, results, show
           count++;
         }
       }
-      if (count > 0 || list.every(ex => completedList?.has(ex.id))) {
+      if (count > 0 || list.every((ex) => completedList?.has(ex.id))) {
         if (showToast) showToast("Avaliação submetida com sucesso!", "success");
       } else if (list.length > 0) {
-        if (showToast) showToast("Nenhum novo exercício para submeter.", "success");
+        if (showToast)
+          showToast("Nenhum novo exercício para submeter.", "success");
       }
     } finally {
       setIsFinishing(false);
@@ -2699,8 +2773,8 @@ const InteractiveQuiz = ({ course, lesson, onExerciseStatusUpdate, results, show
   };
 
   const resetExercise = (exId: string) => {
-    setAnswers(prev => ({ ...prev, [exId]: {} }));
-    setChecked(prev => {
+    setAnswers((prev) => ({ ...prev, [exId]: {} }));
+    setChecked((prev) => {
       const next = { ...prev };
       delete next[exId];
       return next;
@@ -2739,7 +2813,7 @@ const InteractiveQuiz = ({ course, lesson, onExerciseStatusUpdate, results, show
                   {checked[ex.id] ? "Correto" : "Tente novamente"}
                 </span>
                 {!checked[ex.id] && (
-                  <button 
+                  <button
                     onClick={() => resetExercise(ex.id)}
                     className="text-[10px] font-bold text-gray-400 hover:text-brand-green uppercase"
                   >
@@ -2780,10 +2854,11 @@ const InteractiveQuiz = ({ course, lesson, onExerciseStatusUpdate, results, show
               <div className="pt-3 border-t border-gray-100 mt-2">
                 <button
                   onClick={() => {
-                    if (ex.type === 'quiz') checkQuiz(ex);
-                    else if (ex.type === 'dragdrop' || ex.type === 'matching') checkDrag(ex);
-                    else if (ex.type === 'truefalse') checkTF(ex);
-                    else if (ex.type === 'fillblank') checkFill(ex);
+                    if (ex.type === "quiz") checkQuiz(ex);
+                    else if (ex.type === "dragdrop" || ex.type === "matching")
+                      checkDrag(ex);
+                    else if (ex.type === "truefalse") checkTF(ex);
+                    else if (ex.type === "fillblank") checkFill(ex);
                   }}
                   className="bg-[#0E7038] text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-black transition-all active:scale-95 shadow-md flex items-center gap-2"
                 >
@@ -3104,7 +3179,7 @@ const Comment = ({
                     <span
                       className={`text-[11px] font-bold ${isInstructor ? "text-brand-green" : "text-gray-700"}`}
                     >
-                      {a.author_name || (isInstructor ? "Tutor" : "Formando")}
+                      {a.author_name || (isInstructor ? "Equipe" : "Formando")}
                     </span>
                     {isInstructor && (
                       <span className="text-[9px] bg-brand-green text-white px-1.5 py-0.5 rounded-full font-black uppercase">
@@ -3114,14 +3189,12 @@ const Comment = ({
                   </div>
                   <span className="text-[10px] text-gray-400">
                     {a.createdAt?.toDate
-                      ? a.createdAt
-                          .toDate()
-                          .toLocaleString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            day: "2-digit",
-                            month: "2-digit",
-                          })
+                      ? a.createdAt.toDate().toLocaleString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          day: "2-digit",
+                          month: "2-digit",
+                        })
                       : ""}
                   </span>
                 </div>

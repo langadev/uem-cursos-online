@@ -85,7 +85,6 @@ const MyCoursesPage: React.FC = () => {
             course?.imageUrl ||
             course?.image ||
             "https://via.placeholder.com/320x180.png?text=Curso",
-          instructor: course?.instructor || "Tutor",
           progress,
           totalLessons,
           completedLessons: prog.completed,
@@ -358,8 +357,6 @@ const MyCoursesPage: React.FC = () => {
                 title: fb.fallback?.title || existing.fallback?.title,
                 category: fb.fallback?.category || existing.fallback?.category,
                 imageUrl: fb.fallback?.imageUrl || existing.fallback?.imageUrl,
-                instructor:
-                  fb.fallback?.instructor || existing.fallback?.instructor,
                 totalLessons:
                   fb.fallback?.totalLessons || existing.fallback?.totalLessons,
               },
@@ -403,9 +400,7 @@ const MyCoursesPage: React.FC = () => {
   const filteredCourses = useMemo(() => {
     const q = searchQuery.toLowerCase();
     return items.filter((course) => {
-      const matchesSearch =
-        course.title.toLowerCase().includes(q) ||
-        course.instructor.toLowerCase().includes(q);
+      const matchesSearch = course.title.toLowerCase().includes(q);
       if (!matchesSearch) return false;
       if (activeTab === "completed") return course.progress === 100;
       if (activeTab === "in-progress")
@@ -566,7 +561,6 @@ const CourseProgressCard: React.FC<{ course: EnrolledCourse }> = ({
             {course.title}
           </h3>
         </Link>
-        <p className="text-sm text-gray-500 mb-4">{course.instructor}</p>
 
         {/* Progress Section */}
         <div className="mt-auto pt-4 border-t border-gray-50">

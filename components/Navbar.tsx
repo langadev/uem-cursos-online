@@ -75,7 +75,14 @@ const Navbar: React.FC = () => {
 
         {/* Desktop Links */}
         <div className="hidden lg:flex items-center space-x-8">
-          {NAV_LINKS.map((link) => (
+          {NAV_LINKS.filter((link) => {
+            // hide tutors link from users who are not logged in or not instructor/admin
+            if (link.href === "/tutores") {
+              if (!isAuthenticated || !profile) return false;
+              return ["instructor", "admin"].includes(profile.role);
+            }
+            return true;
+          }).map((link) => (
             <Link
               key={link.label}
               to={link.href}

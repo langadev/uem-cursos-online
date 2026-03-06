@@ -87,7 +87,6 @@ const DashboardPage: React.FC = () => {
             course?.imageUrl ||
             course?.image ||
             "https://via.placeholder.com/320x180.png?text=Curso",
-          instructor: course?.instructor || "Tutor",
           progress,
           totalLessons,
           completedLessons: prog.completed,
@@ -110,7 +109,6 @@ const DashboardPage: React.FC = () => {
             imageUrl:
               e.imageUrl ||
               "https://via.placeholder.com/320x180.png?text=Curso",
-            instructor: e.instructor || "Tutor",
             progress: 0,
             totalLessons: 0,
             completedLessons: 0,
@@ -307,7 +305,6 @@ const DashboardPage: React.FC = () => {
           ts: newTs,
           title: data?.course_title || prev.title,
           imageUrl: data?.imageUrl || prev.imageUrl,
-          instructor: data?.instructor || prev.instructor,
           category: data?.category || prev.category,
         });
       });
@@ -547,9 +544,6 @@ const DashboardPage: React.FC = () => {
                     <h4 className="font-bold text-gray-800 text-sm leading-tight mb-1 group-hover:text-brand-green transition-colors">
                       {course.title}
                     </h4>
-                    <p className="text-xs text-gray-500">
-                      {course.instructor || "Tutor"}
-                    </p>
                   </Link>
                 ))}
                 {recommended.length === 0 && (

@@ -12,14 +12,32 @@ import {
 } from "lucide-react";
 import React from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 import { useBranding } from "../contexts/BrandingContext";
 import { useTutorDetails } from "../hooks/useTutors";
 
 const InstructorDetailsPage: React.FC = () => {
   const { uid } = useParams<{ uid: string }>();
   const navigate = useNavigate();
+  const { user, profile, loading: authLoading } = useAuth();
   const { tutor, loading, error } = useTutorDetails(uid || "");
   const { branding } = useBranding();
+
+  const canView =
+    !authLoading &&
+    profile &&
+    (profile.role === "instructor" || profile.role === "admin");
+  if (!uid) {
+    return <Navigate to="/tutores" replace />;
+  }
+
+  if (!authLoading && !canView) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <p className="text-gray-500">Informação do tutor indisponível.</p>
+      </div>
+    );
+  }
 
   if (!uid) {
     return <Navigate to="/tutores" replace />;

@@ -50,6 +50,7 @@ const CertificatePaymentModal: React.FC<CertificatePaymentModalProps> = ({
 }) => {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
+  const isStudent = profile?.role === "student";
   const [activeTab, setActiveTab] = useState<"summary" | "payment">("summary");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("m-pesa");
   const [transactionId, setTransactionId] = useState("");
@@ -81,7 +82,7 @@ const CertificatePaymentModal: React.FC<CertificatePaymentModalProps> = ({
         setCourse(courseData);
 
         // Buscar nome do tutor/instrutor
-        if (uid) {
+        if (uid && !isStudent) {
           try {
             const userRef = doc(db, "users", uid);
             const userSnap = await getDoc(userRef);
@@ -651,7 +652,7 @@ const CertificatePaymentModal: React.FC<CertificatePaymentModalProps> = ({
                     </p>
                   </div>
                 )}
-                {instructorName && (
+                {!isStudent && instructorName && (
                   <div>
                     <p className="text-xs text-gray-600">Instrutor</p>
                     <p className="font-semibold text-gray-900 text-sm">
