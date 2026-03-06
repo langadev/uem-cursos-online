@@ -1,38 +1,37 @@
 import {
-    addDoc,
-    collection,
-    doc,
-    getDocs,
-    increment,
-    onSnapshot,
-    orderBy,
-    limit as qbLimit,
-    query,
-    serverTimestamp,
-    updateDoc,
-    where,
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  increment,
+  onSnapshot,
+  orderBy,
+  limit as qbLimit,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
 } from "firebase/firestore";
 import {
-    Award,
-    CheckCircle,
-    ChevronDown,
-    ChevronLeft,
-    Circle,
-    Download,
-    File,
-    FileText,
-    Lock,
-    Menu,
-    PlayCircle,
-    Send,
-    Upload,
-    Volume2,
-    VolumeX,
-    X,
+  Award,
+  CheckCircle,
+  ChevronDown,
+  ChevronLeft,
+  Circle,
+  Download,
+  File,
+  FileText,
+  Lock,
+  Menu,
+  PlayCircle,
+  Send,
+  Upload,
+  X,
 } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import CertificatePaymentModal from "../../components/CertificatePaymentModal";
+import MascotReader from "../../components/MascotReader";
 import { useAuth } from "../../contexts/AuthContext";
 import { db } from "../../services/firebase";
 import { isSupabaseConfigured, supabase } from "../../services/supabase";
@@ -72,12 +71,8 @@ const CoursePlayerPage: React.FC = () => {
     message: string;
     type: "success" | "error";
   } | null>(null);
-  const [isReading, setIsReading] = useState(false);
   const [showCertificateModal, setShowCertificateModal] = useState(false);
-  const speechSynthesisRef = useRef<SpeechSynthesisUtterance | null>(null);
-  const [remainingTime, setRemainingTime] = useState(0);
-  const MIN_READ_TIME = 30; // 30 segundos de permanência mínima na aula
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  // reading/navigation state is now driven by the mascot reader component
   const [exerciseResults, setExerciseResults] = useState<
     Record<string, boolean>
   >({});
@@ -103,151 +98,9 @@ const CoursePlayerPage: React.FC = () => {
   };
 
   // Controlar leitura de texto (text-to-speech)
-  const toggleTextToSpeech = (text: string) => {
-    // Se já está lendo, parar
-    if (isReading) {
-      window.speechSynthesis.cancel();
-      setIsReading(false);
-      return;
-    }
+  // legacy reading functionality removed; see MascotReader component instead.
 
-    let plainText = "";
-    const textToProcess = text || "";
-
-    try {
-      // Tentar como JSON (blocos nativos de editores modernos como Notion/Editor.js)
-      const parsed = JSON.parse(textToProcess);
-      const blocks = Array.isArray(parsed) ? parsed : parsed.blocks || [];
-
-      if (Array.isArray(blocks) && blocks.length > 0) {
-        plainText = blocks
-          .filter((b: any) =>
-            [
-              "h1",
-              "h2",
-              "h3",
-              "h4",
-              "h5",
-              "h6",
-              "p",
-              "quote",
-              "list",
-              "list-ordered",
-              "text",
-              "texto",
-              "paragraph",
-              "header",
-            ].includes(b.type?.toLowerCase()),
-          )
-          .map(
-            (b: any) =>
-              b.value ||
-              b.content ||
-              b.text ||
-              b.texto ||
-              (b.data && b.data.text) ||
-              "",
-          )
-          .join(". ");
-      } else {
-        plainText = String(textToProcess);
-      }
-    } catch (e) {
-      // Se falhar o parse, trata como HTML ou Texto Puro
-      plainText = textToProcess;
-    }
-
-    // Se ainda tiver HTML ou se for HTML puro, limpar adequadamente
-    if (/<[^>]+>/.test(plainText)) {
-      try {
-        const domParser = new DOMParser();
-        const doc = domParser.parseFromString(plainText, "text/html");
-        // Remover elementos que não devem ser lidos (código, scripts, estilos, metadados)
-        const elementsToRemove = doc.querySelectorAll(
-          "script, style, code, pre, svg, head, noscript, iframe, .hidden, [hidden]",
-        );
-        elementsToRemove.forEach((el) => el.remove());
-        plainText = doc.body.textContent || doc.body.innerText || "";
-      } catch (err) {
-        // Fallback para regex robusta se DOMParser falhar
-        plainText = plainText
-          .replace(
-            /<(script|style|code|pre|svg|head)[^>]*>[\s\S]*?<\/\1>/gi,
-            " ",
-          ) // Remove conteúdo de tags de código/script
-          .replace(/<[^>]+>/g, " "); // Remove tags restantes
-      }
-    }
-
-    // Limpeza final de espaços, quebras de linha e caracteres invisíveis
-    plainText = plainText.replace(/\s+/g, " ").trim();
-
-    if (!plainText || plainText.length < 2) {
-      showToast(
-        "Nenhum texto legível encontrado para leitura nesta aula.",
-        "error",
-      );
-      return;
-    }
-
-    // Criar utterance
-    const utterance = new SpeechSynthesisUtterance(plainText);
-    utterance.lang = "pt-BR";
-    utterance.rate = 0.95;
-    utterance.pitch = 1;
-    utterance.volume = 1;
-
-    utterance.onstart = () => setIsReading(true);
-    utterance.onend = () => setIsReading(false);
-    utterance.onerror = () => {
-      setIsReading(false);
-      showToast("Erro ao reproduzir áudio. Tente novamente.", "error");
-    };
-
-    speechSynthesisRef.current = utterance;
-    window.speechSynthesis.speak(utterance);
-  };
-
-  // Sincronizar timer ao mudar de aula
-  useEffect(() => {
-    // Parar timer anterior se houver
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-
-    if (!currentLessonId) {
-      setRemainingTime(0);
-      return;
-    }
-
-    // Se já foi concluída, não precisa de timer
-    if (completedLessons.has(currentLessonId)) {
-      setRemainingTime(0);
-      return;
-    }
-
-    // Iniciar novo timer
-    setRemainingTime(MIN_READ_TIME);
-
-    timerRef.current = setInterval(() => {
-      setRemainingTime((prev) => {
-        if (prev <= 1) {
-          if (timerRef.current) clearInterval(timerRef.current);
-          timerRef.current = null;
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000) as any;
-
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [currentLessonId, completedLessons.has(currentLessonId)]);
+  // timer-based gating removed; lessons are now marked complete when the mascot reader finishes (handled below)
 
   // Cleanup de subscriptions de respostas ao desmontar
   useEffect(() => {
@@ -260,8 +113,6 @@ const CoursePlayerPage: React.FC = () => {
       answersSubsRef.current = {};
       // Parar leitura ao desmontar
       window.speechSynthesis.cancel();
-      // Limpar timer
-      if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
 
@@ -1497,289 +1348,12 @@ const CoursePlayerPage: React.FC = () => {
           ) : current?.lesson?.type === "text" ? (
             <div className="w-full bg-slate-50">
               <div className="max-w-4xl mx-auto px-6 py-8">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold text-gray-900">
-                    Leitura da Aula
-                  </h3>
-                  <div className="flex items-center gap-4">
-                    {current?.lesson?.content && (
-                      <button
-                        onClick={() =>
-                          toggleTextToSpeech(current.lesson.content)
-                        }
-                        className={`flex items-center gap-2 px-3 py-2 rounded-lg font-semibold text-sm transition-colors ${
-                          isReading
-                            ? "bg-red-100 text-red-600 hover:bg-red-200"
-                            : "bg-blue-100 text-blue-600 hover:bg-blue-200"
-                        }`}
-                      >
-                        {isReading ? (
-                          <>
-                            <VolumeX className="w-4 h-4" />
-                            Parar
-                          </>
-                        ) : (
-                          <>
-                            <Volume2 className="w-4 h-4" />
-                            Ler
-                          </>
-                        )}
-                      </button>
-                    )}
-                    <div className="text-xs text-gray-400">
-                      Conteúdo em texto
-                    </div>
-                  </div>
-                </div>
-                <article className="prose prose-green max-w-none">
-                  {(() => {
-                    const c = String(current?.lesson?.content || "");
-
-                    const renderText = (text: string) => {
-                      if (!text) return null;
-                      // Suporte básico para Negrito (**) e Itálico (* ou _)
-                      const parts = text.split(
-                        /(\*\*[^*]+\*\*|\*[^*]+\*|_[^_]+_)/g,
-                      );
-                      return parts.map((part, i) => {
-                        if (part.startsWith("**") && part.endsWith("**")) {
-                          return (
-                            <strong key={i} className="font-bold">
-                              {part.slice(2, -2)}
-                            </strong>
-                          );
-                        }
-                        if (
-                          (part.startsWith("*") && part.endsWith("*")) ||
-                          (part.startsWith("_") && part.endsWith("_"))
-                        ) {
-                          return (
-                            <em key={i} className="italic">
-                              {part.slice(1, -1)}
-                            </em>
-                          );
-                        }
-                        return part;
-                      });
-                    };
-
-                    // Tentar visualizar como blocos nativos
-                    try {
-                      const blocks = JSON.parse(c);
-                      if (Array.isArray(blocks)) {
-                        return (
-                          <div className="space-y-6">
-                            {blocks.map((block: any) => {
-                              const blockEmoji =
-                                block.emoji || block.iconUrl ? (
-                                  <div className="w-10 h-10 bg-white rounded-full border-2 border-brand-green/10 shadow-lg flex items-center justify-center overflow-hidden shrink-0 ml-4">
-                                    {block.emoji ? (
-                                      <span className="text-xl">
-                                        {block.emoji}
-                                      </span>
-                                    ) : (
-                                      <img
-                                        src={block.iconUrl}
-                                        className="w-full h-full object-cover"
-                                        alt="icon"
-                                      />
-                                    )}
-                                  </div>
-                                ) : null;
-
-                              switch (block.type) {
-                                case "h1":
-                                  return (
-                                    <h1
-                                      key={block.id}
-                                      className="text-3xl font-extrabold text-gray-900 border-b pb-4 mb-4 flex items-center justify-between"
-                                    >
-                                      <span className="flex-1">
-                                        {renderText(block.value)}
-                                      </span>{" "}
-                                      {blockEmoji}
-                                    </h1>
-                                  );
-                                case "h2":
-                                  return (
-                                    <h2
-                                      key={block.id}
-                                      className="text-2xl font-bold text-gray-800 mt-8 mb-3 flex items-center justify-between"
-                                    >
-                                      <span className="flex-1">
-                                        {renderText(block.value)}
-                                      </span>{" "}
-                                      {blockEmoji}
-                                    </h2>
-                                  );
-                                case "h3":
-                                  return (
-                                    <h3
-                                      key={block.id}
-                                      className="text-xl font-bold text-gray-800 mt-6 mb-2 flex items-center justify-between"
-                                    >
-                                      <span className="flex-1">
-                                        {renderText(block.value)}
-                                      </span>{" "}
-                                      {blockEmoji}
-                                    </h3>
-                                  );
-                                case "h4":
-                                  return (
-                                    <h4
-                                      key={block.id}
-                                      className="text-lg font-bold text-gray-700 mt-4 mb-2 flex items-center justify-between uppercase tracking-wider"
-                                    >
-                                      <span className="flex-1">
-                                        {renderText(block.value)}
-                                      </span>{" "}
-                                      {blockEmoji}
-                                    </h4>
-                                  );
-                                case "p":
-                                  return (
-                                    <p
-                                      key={block.id}
-                                      className="text-gray-700 leading-relaxed text-lg mb-4 flex items-center justify-between"
-                                    >
-                                      <span className="flex-1">
-                                        {renderText(block.value)}
-                                      </span>{" "}
-                                      {blockEmoji}
-                                    </p>
-                                  );
-                                case "quote":
-                                  return (
-                                    <blockquote
-                                      key={block.id}
-                                      className="border-l-4 border-brand-green bg-green-50/50 p-6 rounded-r-xl my-6 italic text-gray-700 text-lg shadow-sm flex items-center justify-between"
-                                    >
-                                      <span className="flex-1">
-                                        {renderText(block.value)}
-                                      </span>{" "}
-                                      {blockEmoji}
-                                    </blockquote>
-                                  );
-                                case "list":
-                                  return (
-                                    <div
-                                      key={block.id}
-                                      className="flex gap-4 items-start mb-4"
-                                    >
-                                      {blockEmoji || (
-                                        <div className="w-2 h-2 rounded-full bg-brand-green shrink-0 mt-2.5" />
-                                      )}
-                                      <p className="text-gray-700 text-lg flex-1">
-                                        {renderText(block.value)}
-                                      </p>
-                                    </div>
-                                  );
-                                case "list-ordered":
-                                  return (
-                                    <div
-                                      key={block.id}
-                                      className="flex gap-4 items-start mb-4"
-                                    >
-                                      <span className="text-brand-green font-extrabold text-lg min-w-[28px] text-right">
-                                        {(() => {
-                                          const listBlocks = blocks.filter(
-                                            (b: any) =>
-                                              b.type === "list-ordered",
-                                          );
-                                          const pos = listBlocks.findIndex(
-                                            (b: any) => b.id === block.id,
-                                          );
-                                          return pos >= 0
-                                            ? `${pos + 1}.`
-                                            : "1.";
-                                        })()}
-                                      </span>
-                                      <p className="text-gray-700 text-lg flex-1">
-                                        {renderText(block.value)}
-                                      </p>
-                                    </div>
-                                  );
-                                case "image":
-                                  return (
-                                    <div
-                                      key={block.id}
-                                      className="my-8 flex flex-col items-center"
-                                    >
-                                      <div className="max-w-xl w-full rounded-2xl overflow-hidden shadow-lg border border-gray-100 group transition-all hover:shadow-xl relative">
-                                        {blockEmoji && (
-                                          <div className="absolute top-4 right-4 z-10 bg-white/80 backdrop-blur-sm p-1 rounded-full shadow-md">
-                                            {blockEmoji}
-                                          </div>
-                                        )}
-                                        <img
-                                          src={block.value}
-                                          alt="Conteúdo da aula"
-                                          className="w-full h-auto"
-                                        />
-                                      </div>
-                                      {block.fileName && (
-                                        <p className="mt-3 text-xs text-gray-400 italic font-medium">
-                                          {block.fileName}
-                                        </p>
-                                      )}
-                                    </div>
-                                  );
-                                case "file":
-                                  return (
-                                    <div
-                                      key={block.id}
-                                      className="my-6 p-6 bg-gradient-to-br from-gray-50 to-white rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 group"
-                                    >
-                                      <div className="p-4 bg-white rounded-xl shadow-sm text-brand-green group-hover:scale-110 transition-transform">
-                                        <File size={32} />
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <h4 className="text-lg font-bold text-gray-900 truncate">
-                                          {block.fileName ||
-                                            "Ficheiro para Download"}
-                                        </h4>
-                                        <p className="text-sm text-gray-500">
-                                          Recurso adicional da aula
-                                        </p>
-                                      </div>
-                                      <a
-                                        href={block.value}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex items-center gap-2 px-5 py-2.5 bg-brand-green text-white rounded-xl font-bold hover:bg-brand-green/90 transition-all shadow-md active:scale-95"
-                                      >
-                                        <Download size={18} />
-                                        Baixar
-                                      </a>
-                                    </div>
-                                  );
-                                default:
-                                  return null;
-                              }
-                            })}
-                          </div>
-                        );
-                      }
-                    } catch (e) {
-                      // Se falhar o parse, trata como HTML ou Texto Puro (fallback)
-                    }
-
-                    const isHtml = /<[^>]+>/.test(c);
-                    if (isHtml) {
-                      return (
-                        <div
-                          className="prose max-w-none"
-                          dangerouslySetInnerHTML={{ __html: c }}
-                        />
-                      );
-                    }
-                    return (
-                      <div className="text-gray-700 whitespace-pre-wrap text-lg leading-relaxed">
-                        {c}
-                      </div>
-                    );
-                  })()}
-                </article>
+                {/* a new mascot-driven reader replaces the old article/tts UI */}
+                <MascotReader
+                  content={current.lesson.content || ""}
+                  onFinished={markLessonAsComplete}
+                  mascotUrl={course?.mascotUrl}
+                />
               </div>
             </div>
           ) : current?.lesson?.type === "document" &&
@@ -1906,49 +1480,19 @@ const CoursePlayerPage: React.FC = () => {
                 {!completedLessons.has(currentLessonId) && (
                   <button
                     onClick={markLessonAsComplete}
-                    disabled={remainingTime > 0}
-                    className={`px-4 py-2 text-sm font-bold text-white rounded-lg transition-all shadow-md active:scale-95 flex items-center gap-2 ${
-                      remainingTime > 0
-                        ? "bg-amber-500 cursor-not-allowed"
-                        : "bg-brand-green hover:bg-brand-dark shadow-brand-green/20"
-                    }`}
+                    className="px-4 py-2 text-sm font-bold text-white rounded-lg transition-all shadow-md active:scale-95 flex items-center gap-2 bg-brand-green hover:bg-brand-dark shadow-brand-green/20"
                   >
-                    {remainingTime > 0 ? (
-                      <>
-                        <Lock className="w-4 h-4" />
-                        Aguarde ({remainingTime}s)
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle className="w-4 h-4" />
-                        Concluir Aula
-                      </>
-                    )}
+                    <CheckCircle className="w-4 h-4" />
+                    Concluir Aula
                   </button>
                 )}
 
                 <button
                   onClick={goNext}
-                  disabled={
-                    remainingTime > 0 && !completedLessons.has(currentLessonId)
-                  }
-                  className={`px-4 py-2 text-sm font-semibold text-white rounded-lg transition-colors flex items-center gap-2 ${
-                    remainingTime > 0 && !completedLessons.has(currentLessonId)
-                      ? "bg-gray-400 cursor-not-allowed"
-                      : "bg-brand-green hover:bg-brand-dark shadow-sm"
-                  }`}
+                  disabled={!completedLessons.has(currentLessonId)}
+                  className="px-4 py-2 text-sm font-semibold text-white rounded-lg transition-colors flex items-center gap-2 bg-brand-green hover:bg-brand-dark shadow-sm disabled:bg-gray-400 disabled:cursor-not-allowed"
                 >
-                  {remainingTime > 0 &&
-                  !completedLessons.has(currentLessonId) ? (
-                    <>
-                      <Lock className="w-4 h-4" />
-                      Aguarde ({remainingTime}s)
-                    </>
-                  ) : (
-                    <>
-                      Próxima <ChevronLeft className="w-4 h-4 rotate-180" />
-                    </>
-                  )}
+                  Próxima <ChevronLeft className="w-4 h-4 rotate-180" />
                 </button>
               </div>
             </div>

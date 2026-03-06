@@ -16,6 +16,7 @@
     "db:reset": "npx tsx server/db/reset.ts"
   },
   "dependencies": {
+    "@babel/parser": "^7.29.0",
     "@google/genai": "^1.37.0",
     "@react-pdf-viewer/core": "^3.12.0",
     "@react-pdf-viewer/default-layout": "^3.12.0",

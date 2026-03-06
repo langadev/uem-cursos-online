@@ -568,6 +568,7 @@ const CourseDetailsPage: React.FC = () => {
                 </div>
               </div>
             </section>
+            )}
           </div>
 
           {/* RIGHT COLUMN (Sticky Sidebar) */}
@@ -673,7 +674,11 @@ const CourseDetailsPage: React.FC = () => {
 
 // --- Sub-components for this page ---
 
-const LearningPoint: React.FC<{ text: string }> = ({ text }) => (
+interface LearningPointProps {
+  text: string;
+}
+
+const LearningPoint = ({ text }: LearningPointProps) => (
   <div className="flex items-start gap-3">
     <Check className="w-5 h-5 text-gray-400 mt-0.5 flex-shrink-0" />
     <span className="text-sm text-gray-700">{text}</span>
@@ -693,7 +698,11 @@ const FeatureRow = ({
   </div>
 );
 
-const TimedHtml5Preview: React.FC<{ src?: string }> = ({ src }) => {
+interface TimedHtml5PreviewProps {
+  src?: string;
+}
+
+const TimedHtml5Preview = ({ src }: TimedHtml5PreviewProps) => {
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   React.useEffect(() => {
     const v = videoRef.current;
@@ -719,12 +728,14 @@ const TimedHtml5Preview: React.FC<{ src?: string }> = ({ src }) => {
   );
 };
 
-const AccordionItem: React.FC<{
+interface AccordionItemProps {
   title: string;
   details: string;
   isOpen?: boolean;
   lessons?: any[];
-}> = ({
+}
+
+const AccordionItem = ({
   title,
   details,
   isOpen = false,
