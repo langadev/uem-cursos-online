@@ -1,27 +1,27 @@
 import {
-    collection,
-    doc,
-    getDocs,
-    onSnapshot,
-    limit as qbLimit,
-    query,
-    where,
+  collection,
+  doc,
+  getDocs,
+  onSnapshot,
+  limit as qbLimit,
+  query,
+  where,
 } from "firebase/firestore";
 import {
-    AlertCircle,
-    Award,
-    Check,
-    ChevronDown,
-    Download,
-    File,
-    FileText,
-    Globe,
-    Infinity,
-    PlayCircle,
-    Share2,
-    Smartphone,
-    Star,
-    Users,
+  AlertCircle,
+  Award,
+  Check,
+  ChevronDown,
+  Download,
+  File,
+  FileText,
+  Globe,
+  Infinity,
+  PlayCircle,
+  Share2,
+  Smartphone,
+  Star,
+  Users,
 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -371,13 +371,13 @@ const CourseDetailsPage: React.FC = () => {
                 </span>
               </div>
               <span className="hidden sm:inline text-slate-500">|</span>
-              {(!profileLoading && profile?.role !== "student") && (
-              <div className="flex items-center gap-1 text-slate-100">
-                <span className="text-slate-300">Instrutor:</span>
-                <span className="underline decoration-yellow-400/50 underline-offset-4 font-semibold">
-                  {course?.instructor || "Instrutor"}
-                </span>
-              </div>
+              {!profileLoading && profile?.role !== "student" && (
+                <div className="flex items-center gap-1 text-slate-100">
+                  <span className="text-slate-300">Instrutor:</span>
+                  <span className="underline decoration-yellow-400/50 underline-offset-4 font-semibold">
+                    {course?.instructor || "Instrutor"}
+                  </span>
+                </div>
               )}
               <span className="hidden sm:inline text-slate-500">|</span>
               <div className="flex items-center gap-1.5 text-slate-100">
@@ -404,7 +404,6 @@ const CourseDetailsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. Main Content & Sidebar Layout */}
       <div className="max-w-7xl mx-auto px-6 py-12">
         <div className="grid lg:grid-cols-3 gap-12">
           {/* LEFT COLUMN (Content) */}
@@ -525,49 +524,57 @@ const CourseDetailsPage: React.FC = () => {
             </section>
 
             {/* Instructor (hidden from students) */}
-            {(!profileLoading && profile?.role !== "student") && (
+            {!profileLoading && profile?.role !== "student" && (
               <section className="bg-white border-t border-gray-100 pt-8">
                 <h2 className="text-2xl font-bold text-gray-900 mb-6">
                   Seu Instrutor
                 </h2>
                 <div className="flex gap-6 items-start">
-                <img
-                  src={
-                    instructorData?.avatar_url ||
-                    `https://ui-avatars.com/api/?name=${encodeURIComponent(course?.instructor || "Instrutor")}&background=0e7038&color=fff&size=128`
-                  }
-                  alt={(!profileLoading && profile?.role !== "student") ? (course?.instructor || "Instrutor") : ""}
-                  className="w-16 h-16 rounded-full object-cover border-4 border-gray-50 shadow-sm"
-                />
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-1">
-                    {(!profileLoading && profile?.role !== "student") ? (course?.instructor || "Instrutor") : ""}
-                  </h3>
-                  <p className="text-brand-green font-medium text-sm mb-3">
-                    {instructorData?.profession ||
-                      `Senior ${course?.category || "Geral"} Specialist`}
-                  </p>
-                  <div className="flex items-center gap-6 text-sm text-gray-500 mb-4">
-                    <div className="flex items-center gap-1.5">
-                      <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                      <span>{course?.rating || "4.8"} Instructor Rating</span>
+                  <img
+                    src={
+                      instructorData?.avatar_url ||
+                      `https://ui-avatars.com/api/?name=${encodeURIComponent(course?.instructor || "Instrutor")}&background=0e7038&color=fff&size=128`
+                    }
+                    alt={
+                      !profileLoading && profile?.role !== "student"
+                        ? course?.instructor || "Instrutor"
+                        : ""
+                    }
+                    className="w-16 h-16 rounded-full object-cover border-4 border-gray-50 shadow-sm"
+                  />
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-1">
+                      {!profileLoading && profile?.role !== "student"
+                        ? course?.instructor || "Instrutor"
+                        : ""}
+                    </h3>
+                    <p className="text-brand-green font-medium text-sm mb-3">
+                      {instructorData?.profession ||
+                        `Senior ${course?.category || "Geral"} Specialist`}
+                    </p>
+                    <div className="flex items-center gap-6 text-sm text-gray-500 mb-4">
+                      <div className="flex items-center gap-1.5">
+                        <Star className="w-4 h-4 text-yellow-400 fill-current" />
+                        <span>{course?.rating || "4.8"} Instructor Rating</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Award className="w-4 h-4 text-gray-400" />
+                        <span>
+                          {enrollmentCount.toLocaleString()} Formandos
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <PlayCircle className="w-4 h-4 text-gray-400" />
+                        <span>{course?.courseCount || "12"} Cursos</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <Award className="w-4 h-4 text-gray-400" />
-                      <span>{enrollmentCount.toLocaleString()} Formandos</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <PlayCircle className="w-4 h-4 text-gray-400" />
-                      <span>{course?.courseCount || "12"} Cursos</span>
-                    </div>
+                    <p className="text-gray-600 text-sm leading-relaxed">
+                      {instructorData?.bio ||
+                        `Com mais de 10 anos de experiência na indústria, já liderei equipes em grandes empresas de tecnologia e ajudei a formar milhares de profissionais. Minha paixão é tornar conceitos complexos em algo simples e prático.`}
+                    </p>
                   </div>
-                  <p className="text-gray-600 text-sm leading-relaxed">
-                    {instructorData?.bio ||
-                      `Com mais de 10 anos de experiência na indústria, já liderei equipes em grandes empresas de tecnologia e ajudei a formar milhares de profissionais. Minha paixão é tornar conceitos complexos em algo simples e prático.`}
-                  </p>
                 </div>
-              </div>
-            </section>
+              </section>
             )}
           </div>
 

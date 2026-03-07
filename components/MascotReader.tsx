@@ -13,12 +13,19 @@ const defaultMascot = "/mascot.png"; // developer should supply a better asset i
 function chooseVoice(): SpeechSynthesisVoice | null {
   if (!window.speechSynthesis) return null;
   const voices = window.speechSynthesis.getVoices() || [];
-  // prefer voices that advertise Google/Microsoft/Neural and pt
+  // Prefer Portuguese (Portugal) neural/modern voices first
   let candidate = voices.find(
     (v) =>
-      v.lang.toLowerCase().startsWith("pt") &&
+      v.lang.toLowerCase().startsWith("pt-pt") &&
       /google|microsoft|neural|natural/i.test(v.name),
   );
+  if (!candidate) {
+    candidate = voices.find(
+      (v) =>
+        v.lang.toLowerCase().startsWith("pt") &&
+        /google|microsoft|neural|natural/i.test(v.name),
+    );
+  }
   if (!candidate) {
     candidate = voices.find((v) => v.lang.toLowerCase().startsWith("pt"));
   }
@@ -31,8 +38,12 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
   mascotUrl,
 }) => {
   const [slides, setSlides] = useState<React.ReactNode[]>([]);
+  const [readHistory, setReadHistory] = useState<React.ReactNode[]>([]);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [estimated, setEstimated] = useState(0);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   // when content changes reset
@@ -57,28 +68,53 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
   }, []);
 
   const speakSlide = (index: number) => {
+    setPaused(false);
     window.speechSynthesis.cancel();
     const text = slideText(slides[index]);
     if (!text) {
       advance();
       return;
     }
+    // estimate duration in seconds (~0.3s per word)
+    const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean).length;
+    const est = Math.ceil(words * 0.3);
+    setEstimated(est);
+    setElapsed(0);
+    // start timer
+    if (est > 0) {
+      const interval = setInterval(() => {
+        setElapsed((e) => {
+          if (e + 1 >= est) {
+            clearInterval(interval);
+          }
+          return e + 1;
+        });
+      }, 1000);
+    }
 
     const speakNow = () => {
       const u = new SpeechSynthesisUtterance(text);
       const voice = chooseVoice();
       if (voice) u.voice = voice;
-      u.lang = voice?.lang || "pt-BR";
+      // default to Portuguese Portugal
+      u.lang = voice?.lang || "pt-PT";
       u.rate = 0.95;
       u.pitch = 1;
-      u.onstart = () => setIsSpeaking(true);
+      u.onstart = () => {
+        setIsSpeaking(true);
+        setPaused(false);
+        // reset elapsed (already done)
+      };
       u.onend = () => {
         setIsSpeaking(false);
+        // record history so user can scroll back
+        setReadHistory((h) => [...h, slides[index]]);
         advance();
       };
       u.onerror = () => {
         setIsSpeaking(false);
         // still advance to avoid lock
+        setReadHistory((h) => [...h, slides[index]]);
         advance();
       };
       utteranceRef.current = u;
@@ -99,6 +135,7 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
   };
 
   const advance = () => {
+    setPaused(false);
     if (currentSlide < slides.length - 1) {
       setCurrentSlide((i) => i + 1);
     } else {
@@ -108,60 +145,77 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
 
   const handleSkip = () => {
     window.speechSynthesis.cancel();
+    setPaused(false);
     setCurrentSlide(slides.length - 1);
   };
 
   return (
-    <div className="flex flex-col md:flex-row items-start gap-6">
-      <style>{`
-        @keyframes talk {0%,100%{transform: translateY(0);}50%{transform: translateY(-3px);}}
-      `}</style>
-      <div className="w-40 flex-shrink-0">
-        <img
-          src={mascotUrl || defaultMascot}
-          alt="Mascote"
-          className="w-full h-auto transition-transform duration-200 ease-in-out"
-          style={isSpeaking ? { animation: "talk 0.4s infinite" } : undefined}
-        />
-      </div>
-      <div className="flex-1">
-        <div className="bg-white p-6 rounded-xl shadow-lg">
-          <div className="prose max-w-none">
-            {slides[currentSlide] || <em>Sem conteúdo</em>}
-          </div>
+    <div className="p-6 bg-white border border-gray-300 rounded-xl space-y-6">
+      <div className="flex flex-col md:flex-row items-start gap-6">
+        <div className="w-40 flex-shrink-0">
+          <img
+            src={mascotUrl || defaultMascot}
+            alt="Mascote"
+            className="w-full h-auto transition-transform duration-200 ease-in-out"
+            style={isSpeaking ? { animation: "talk 0.4s infinite" } : undefined}
+          />
         </div>
-        {slides.length > 1 && (
-          <div className="mt-4 flex items-center gap-4">
-            <span className="text-sm text-gray-500">
-              Slide {currentSlide + 1} de {slides.length}
-            </span>
-            <button
-              onClick={handleSkip}
-              className="text-sm text-blue-600 hover:underline"
-            >
-              Pular leitura
-            </button>
-            <button
-              onClick={advance}
-              disabled={isSpeaking}
-              className="text-sm bg-brand-green text-white px-3 py-1 rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed"
-            >
-              Próximo
-            </button>
+        <div className="flex-1">
+          {/* current slide banner, large area similar to video aspect ratio */}
+          <div className="bg-white p-6 rounded-xl shadow-lg aspect-video overflow-auto">
+            <div className="prose max-w-none">
+              {slides[currentSlide] || <em>Sem conteúdo</em>}
+            </div>
           </div>
-        )}
+          {/* history of read slides shown below current */}
+          {readHistory.length > 0 && (
+            <div className="mt-6 bg-gray-100 p-4 rounded-lg space-y-2 max-h-40 overflow-y-auto">
+              <strong className="text-sm text-gray-600">Texto já lido:</strong>
+              {readHistory.map((s, i) => (
+                <div key={i} className="prose max-w-none">
+                  {s}
+                </div>
+              ))}
+            </div>
+          )}
+          {slides.length > 1 && (
+            <div className="mt-4 flex items-center gap-4">
+              <span className="text-sm text-gray-500">
+                Slide {currentSlide + 1} de {slides.length}
+              </span>
+              <button
+                onClick={handleSkip}
+                className="text-sm text-blue-600 hover:underline"
+              >
+                Pular leitura
+              </button>
+              <button
+                onClick={advance}
+                disabled={isSpeaking}
+                className="text-sm bg-brand-green text-white px-3 py-1 rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                Próximo
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 };
 
-// helpers //////////////////////////////////////////////////////
-
 function slideText(node: React.ReactNode): string {
-  if (typeof node === "string") return node;
+  if (typeof node === "string") {
+    // strip raw urls
+    return node.replace(/https?:\/\/\S+/gi, "");
+  }
   if (React.isValidElement(node)) {
     const props: any = node.props || {};
-    if (typeof props.children === "string") return props.children;
+    // skip anchors/links entirely
+    if (node.type === "a" || node.type === "link") return "";
+    if (typeof props.children === "string") {
+      return props.children.replace(/https?:\/\/\S+/gi, "");
+    }
     if (Array.isArray(props.children)) {
       return props.children.map(slideText).join(" ");
     }
@@ -170,10 +224,16 @@ function slideText(node: React.ReactNode): string {
 }
 
 function parseContentToSlides(raw: string): React.ReactNode[] {
+  // remove image tags and links to avoid showing/reading them
+  const cleaned = raw
+    .replace(/<img[^>]*>/gi, "")
+    .replace(/<a[^>]*>(.*?)<\/a>/gi, "")
+    .trim();
+
   const slides: React.ReactNode[] = [];
   // try JSON blocks
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(cleaned);
     const blocks = Array.isArray(parsed) ? parsed : parsed.blocks || [];
     if (Array.isArray(blocks) && blocks.length > 0) {
       blocks.forEach((block: any, idx: number) => {
@@ -184,7 +244,7 @@ function parseContentToSlides(raw: string): React.ReactNode[] {
   } catch {}
 
   // fallback: split by two newlines or <p>
-  const parts = raw
+  const parts = cleaned
     .split(/(?:\r?\n){2,}|<p[^>]*>/i)
     .map((p) => p.trim())
     .filter((p) => p);
@@ -196,7 +256,7 @@ function parseContentToSlides(raw: string): React.ReactNode[] {
   }
 
   // single slide
-  return [<div key="only" dangerouslySetInnerHTML={{ __html: raw }} />];
+  return [<div key="only" dangerouslySetInnerHTML={{ __html: cleaned }} />];
 }
 
 function renderBlock(block: any, key: number): React.ReactNode {
