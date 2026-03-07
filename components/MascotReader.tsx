@@ -76,7 +76,11 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
       return;
     }
     // estimate duration in seconds (~0.3s per word)
-    const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean).length;
+    const words = text
+      .replace(/\s+/g, " ")
+      .trim()
+      .split(" ")
+      .filter(Boolean).length;
     const est = Math.ceil(words * 0.3);
     setEstimated(est);
     setElapsed(0);
