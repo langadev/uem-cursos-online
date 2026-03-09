@@ -348,24 +348,9 @@ const CoursePlayerPage: React.FC = () => {
       return;
     }
 
-    // Verificar se há exercícios pendentes nesta aula
-    const lessonExs = (course?.interactiveExercises || []).filter(
-      (ex: any) =>
-        String(ex.lessonId || ex.lesson_id) === String(current.lesson.id),
-    );
-    if (lessonExs.length > 0) {
-      const pendingExs = lessonExs.filter(
-        (ex: any) => !completedExercises.has(ex.id),
-      );
-      if (pendingExs.length > 0) {
-        showToast(
-          "Complete os exercícios interativos antes de concluir esta aula.",
-          "error",
-        );
-        setActiveTab("interactive");
-        return;
-      }
-    }
+    // Modo Self-directed para adultos: 
+    // Os exercícios interativos não impedem de concluir a aula.
+    // O aluno pode assistir e concluir os módulos ao seu próprio ritmo.
 
     try {
       // Adicionar registro de conclusão no Firebase
@@ -583,18 +568,37 @@ const CoursePlayerPage: React.FC = () => {
       return;
     }
     try {
-      const q = query(
-        collection(db, "submissions"),
-        where("course_id", "==", id),
-        where("user_uid", "==", user.uid),
-        orderBy("createdAt", "desc"),
-      );
-      const unsub = onSnapshot(q, (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setUploadedFiles(list);
-      });
+      const startSubmissionsQuery = (useOrderBy: boolean) => {
+        const q = useOrderBy 
+          ? query(
+              collection(db, "submissions"),
+              where("course_id", "==", id),
+              where("user_uid", "==", user.uid),
+              orderBy("createdAt", "desc"),
+            )
+          : query(
+              collection(db, "submissions"),
+              where("course_id", "==", id),
+              where("user_uid", "==", user.uid),
+            );
+
+        return onSnapshot(q, (snap) => {
+          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          setUploadedFiles(list);
+        }, (err) => {
+          console.error("Erro na consulta de submissões:", err);
+          if (useOrderBy) {
+            console.log("Tentando consulta de submissões sem orderBy...");
+            unsub = startSubmissionsQuery(false);
+          }
+        });
+      };
+
+      let unsub = startSubmissionsQuery(true);
       return () => unsub();
-    } catch {}
+    } catch (err) {
+      console.error("Erro ao configurar listener de submissões:", err);
+    }
   }, [id, user?.uid]);
 
   // Normalizar módulos/aulas do documento
@@ -979,18 +983,8 @@ const CoursePlayerPage: React.FC = () => {
 
   // Determinar se uma aula está bloqueada (não pode ser acessada)
   const isLessonLocked = (lessonId: string): boolean => {
-    // Primeira aula nunca é bloqueada
-    if (allLessons.length > 0 && allLessons[0]?.lesson?.id === lessonId) {
-      return false;
-    }
-
-    // Encontrar índice da aula atual
-    const currentIdx = allLessons.findIndex((x) => x.lesson.id === lessonId);
-    if (currentIdx <= 0) return false;
-
-    // Aula anterior deve estar completada para acessar
-    const prevLesson = allLessons[currentIdx - 1];
-    return !completedLessons.has(prevLesson?.lesson?.id || "");
+    // Formato self-directed (adultos): Nenhum bloqueio sequencial. Assistem ao seu critério.
+    return false;
   };
 
   const courseTitle = course?.title || "Curso Completo";
@@ -1214,9 +1208,10 @@ const CoursePlayerPage: React.FC = () => {
             className="p-2 hover:bg-gray-100 rounded-full transition-colors"
             style={{ color: "#0E7038" }}
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-6 h-6" />
           </Link>
-          <div className="h-8 w-[1px] bg-gray-200 hidden md:block"></div>
+          <div className="h-8 w-[1px] bg-gray-200"></div>
+          
           <div>
             <h1
               className="font-bold text-sm md:text-base truncate max-w-[200px] md:max-w-md"
@@ -1246,14 +1241,22 @@ const CoursePlayerPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* BOTÃO HAMBURGUER (LISTA DE AULAS) - AGORA À DIREITA, PRÓXIMO À SIDEBAR */}
           <button
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            style={{ color: "#0E7038" }}
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            title={isSidebarOpen ? "Fechar painel" : "Abrir painel"}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all duration-300 ${
+              isSidebarOpen 
+                ? "bg-brand-green text-white shadow-md shadow-brand-green/20" 
+                : "bg-slate-100 text-brand-green hover:bg-brand-green hover:text-white"
+            }`}
           >
             <Menu className="w-5 h-5" />
+            <span className="text-xs font-bold uppercase tracking-wider hidden sm:inline">
+              Conteúdos
+            </span>
           </button>
+
+          {/* Outros botões podem vir aqui (ex: ajuda, sair) */}
           {/* Mobile: Dropdown para Certificado */}
           <div className="md:hidden relative group">
             <button
@@ -1348,7 +1351,6 @@ const CoursePlayerPage: React.FC = () => {
           ) : current?.lesson?.type === "text" ? (
             <div className="w-full bg-slate-50">
               <div className="max-w-4xl mx-auto px-6 py-8">
-                {/* a new mascot-driven reader replaces the old article/tts UI */}
                 <MascotReader
                   content={current.lesson.content || ""}
                   onFinished={markLessonAsComplete}
@@ -1489,8 +1491,7 @@ const CoursePlayerPage: React.FC = () => {
 
                 <button
                   onClick={goNext}
-                  disabled={!completedLessons.has(currentLessonId)}
-                  className="px-4 py-2 text-sm font-semibold text-white rounded-lg transition-colors flex items-center gap-2 bg-brand-green hover:bg-brand-dark shadow-sm disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  className="px-4 py-2 text-sm font-semibold text-white rounded-lg transition-colors flex items-center gap-2 bg-brand-green hover:bg-brand-dark shadow-sm"
                 >
                   Próxima <ChevronLeft className="w-4 h-4 rotate-180" />
                 </button>
