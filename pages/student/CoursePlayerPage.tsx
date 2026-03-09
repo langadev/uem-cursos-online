@@ -17,12 +17,14 @@ import {
   CheckCircle,
   ChevronDown,
   ChevronLeft,
+  ChevronRight,
   Circle,
   Download,
   File,
   FileText,
   Lock,
   Menu,
+  Play,
   PlayCircle,
   Send,
   Upload,
@@ -56,7 +58,10 @@ const CoursePlayerPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [course, setCourse] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isFinishingLesson, setIsFinishingLesson] = useState(false);
   const [isEnrolled, setIsEnrolled] = useState(false);
+  const [lastLessonIdFromDb, setLastLessonIdFromDb] = useState("");
+  const [isInitialLessonSet, setIsInitialLessonSet] = useState(false);
   const [fallbackModules, setFallbackModules] = useState<any[]>([]);
   const [questions, setQuestions] = useState<any[]>([]);
   const [newQuestion, setNewQuestion] = useState("");
@@ -343,24 +348,26 @@ const CoursePlayerPage: React.FC = () => {
 
   // Marcar aula como concluída
   const markLessonAsComplete = async () => {
+    if (isFinishingLesson) return;
     if (!user?.uid || !id || !current?.lesson?.id) {
       showToast("Erro ao marcar aula como concluída.", "error");
       return;
     }
 
-    // Modo Self-directed para adultos: 
-    // Os exercícios interativos não impedem de concluir a aula.
-    // O aluno pode assistir e concluir os módulos ao seu próprio ritmo.
+    const completedLessonId = current.lesson.id;
+    const completedLessonTitle = current.lesson.title;
 
     try {
+      setIsFinishingLesson(true);
+      
       // Adicionar registro de conclusão no Firebase
       await addDoc(collection(db, "lesson-completions"), {
         course_id: id,
-        lesson_id: current.lesson.id,
+        lesson_id: completedLessonId,
         user_uid: user.uid,
         user_name: user.displayName || "Formando",
         course_title: course?.title || "",
-        lesson_title: current.lesson.title || "",
+        lesson_title: completedLessonTitle || "",
         instructor_uid: course?.instructor_uid || course?.creator_uid || null,
         completedAt: serverTimestamp(),
       });
@@ -368,14 +375,15 @@ const CoursePlayerPage: React.FC = () => {
       // Atualizar o estado local
       setCompletedLessons((prev) => {
         const updated = new Set(prev);
-        updated.add(current.lesson.id);
+        updated.add(completedLessonId);
         return updated;
       });
 
       // Ir para a próxima aula se existir
       const idx = allLessons.findIndex(
-        (x) => x.lesson.id === current.lesson.id,
+        (x) => x.lesson.id === completedLessonId,
       );
+      
       if (idx >= 0 && idx < allLessons.length - 1) {
         setCurrentLessonId(allLessons[idx + 1].lesson.id);
         showToast(
@@ -383,6 +391,7 @@ const CoursePlayerPage: React.FC = () => {
           "success",
         );
       } else {
+        // Se era a última aula
         showToast(
           "Parabéns! Você completou todas as aulas do curso!",
           "success",
@@ -390,10 +399,11 @@ const CoursePlayerPage: React.FC = () => {
 
         // Se era a última aula, marcar como completo no enrollment
         const newCompleted = new Set(completedLessons);
-        newCompleted.add(current.lesson.id);
+        newCompleted.add(completedLessonId);
         const newProgress = Math.round(
           (newCompleted.size / allLessons.length) * 100,
         );
+        
         if (newProgress === 100) {
           try {
             const enrollmentQ = query(
@@ -409,6 +419,8 @@ const CoursePlayerPage: React.FC = () => {
                 completedAt: serverTimestamp(),
               });
             });
+            // Mudar para tab de overview após terminar tudo
+            setActiveTab("overview");
           } catch (err) {
             console.warn("Erro ao atualizar enrollment com conclusão:", err);
           }
@@ -417,6 +429,8 @@ const CoursePlayerPage: React.FC = () => {
     } catch (err) {
       console.error("Erro ao marcar aula como concluída:", err);
       showToast("Não foi possível marcar a aula como concluída.", "error");
+    } finally {
+      setIsFinishingLesson(false);
     }
   };
 
@@ -459,7 +473,15 @@ const CoursePlayerPage: React.FC = () => {
           qbLimit(1),
         );
         const r = await getDocs(q);
-        setIsEnrolled(!r.empty);
+        if (!r.empty) {
+            setIsEnrolled(true);
+            const data = r.docs[0].data();
+            if (data.last_lesson_id) {
+                setLastLessonIdFromDb(data.last_lesson_id);
+            }
+        } else {
+            setIsEnrolled(false);
+        }
       } catch {
         setIsEnrolled(false);
       }
@@ -660,56 +682,69 @@ const CoursePlayerPage: React.FC = () => {
             lowerUrl.endsWith(".xls") ||
             lowerUrl.endsWith(".xlsx") ||
             lowerUrl.includes("drive.google.com"));
-        let type: "video" | "text" | "document" | "quiz" = "text";
-        if (tRaw) {
-          if (["video", "vídeo", "youtube", "mp4"].includes(tRaw))
-            type = "video";
-          else if (
-            [
-              "document",
-              "documento",
-              "pdf",
-              "doc",
-              "docx",
-              "ppt",
-              "pptx",
-              "xls",
-              "xlsx",
-              "arquivo",
-              "file",
-            ].includes(tRaw)
-          )
-            type = "document";
-          else if (
-            [
-              "quiz",
-              "questionario",
-              "questionário",
-              "perguntas",
-              "teste",
-            ].includes(tRaw)
-          )
-            type = "quiz";
-          else if (
-            ["text", "texto", "article", "artigo", "post"].includes(tRaw)
-          )
-            type = "text";
-          else if (isVideoUrl) type = "video";
-          else if (isDocUrl || l?.file) type = "document";
-          else type = "text";
-        } else {
-          if (isVideoUrl) type = "video";
-          else if (isDocUrl || l?.file) type = "document";
-          else type = "text";
-        }
+          const isImageUrl =
+            typeof urlCandidate === "string" &&
+            (lowerUrl.endsWith(".jpg") ||
+              lowerUrl.endsWith(".jpeg") ||
+              lowerUrl.endsWith(".png") ||
+              lowerUrl.endsWith(".gif") ||
+              lowerUrl.endsWith(".webp") ||
+              lowerUrl.endsWith(".svg"));
+          let type: "video" | "text" | "document" | "quiz" | "image" = "text";
+          if (tRaw) {
+            if (["video", "vídeo", "youtube", "mp4"].includes(tRaw))
+              type = "video";
+            else if (["image", "imagem", "foto", "photo"].includes(tRaw))
+              type = "image";
+            else if (
+              [
+                "document",
+                "documento",
+                "pdf",
+                "doc",
+                "docx",
+                "ppt",
+                "pptx",
+                "xls",
+                "xlsx",
+                "arquivo",
+                "file",
+              ].includes(tRaw)
+            )
+              type = "document";
+            else if (
+              [
+                "quiz",
+                "questionario",
+                "questionário",
+                "perguntas",
+                "teste",
+              ].includes(tRaw)
+            )
+              type = "quiz";
+            else if (
+              ["text", "texto", "article", "artigo", "post"].includes(tRaw)
+            )
+              type = "text";
+            else if (isVideoUrl) type = "video";
+            else if (isImageUrl) type = "image";
+            else if (isDocUrl || l?.file) type = "document";
+            else type = "text";
+          } else {
+            if (isVideoUrl) type = "video";
+            else if (isImageUrl) type = "image";
+            else if (isDocUrl || l?.file) type = "document";
+            else type = "text";
+          }
         let content = "";
         if (type === "video")
           content = l?.videoUrl ?? l?.url ?? l?.content ?? "";
-        else if (type === "document")
+        else if (type === "document" || type === "image")
           content =
             l?.file ??
             l?.fileUrl ??
             l?.documentUrl ??
+            l?.imageUrl ??
             l?.url ??
             l?.content ??
             "";
@@ -781,10 +816,20 @@ const CoursePlayerPage: React.FC = () => {
                 lowerUrl.endsWith(".xls") ||
                 lowerUrl.endsWith(".xlsx") ||
                 lowerUrl.includes("drive.google.com"));
-            let type: "video" | "text" | "document" | "quiz" = "text";
+            const isImageUrl =
+              typeof urlCandidate === "string" &&
+              (lowerUrl.endsWith(".jpg") ||
+                lowerUrl.endsWith(".jpeg") ||
+                lowerUrl.endsWith(".png") ||
+                lowerUrl.endsWith(".gif") ||
+                lowerUrl.endsWith(".webp") ||
+                lowerUrl.endsWith(".svg"));
+            let type: "video" | "text" | "document" | "quiz" | "image" = "text";
             if (tRaw) {
               if (["video", "vídeo", "youtube", "mp4"].includes(tRaw))
                 type = "video";
+              else if (["image", "imagem", "foto", "photo"].includes(tRaw))
+                type = "image";
               else if (
                 [
                   "document",
@@ -816,17 +861,19 @@ const CoursePlayerPage: React.FC = () => {
               )
                 type = "text";
               else if (isVideoUrl) type = "video";
+              else if (isImageUrl) type = "image";
               else if (isDocUrl || (l as any)?.file) type = "document";
               else type = "text";
             } else {
               if (isVideoUrl) type = "video";
+              else if (isImageUrl) type = "image";
               else if (isDocUrl || (l as any)?.file) type = "document";
               else type = "text";
             }
             let content = "";
             if (type === "video")
               content = l?.videoUrl ?? l?.url ?? l?.content ?? "";
-            else if (type === "document")
+            else if (type === "document" || type === "image")
               content =
                 (l as any)?.file ??
                 (l as any)?.fileUrl ??
@@ -893,17 +940,51 @@ const CoursePlayerPage: React.FC = () => {
 
   // Atribuir aula padrão e abrir primeiro módulo
   useEffect(() => {
-    if (!currentLessonId && allLessons.length > 0) {
-      const firstVideo =
-        allLessons.find(
-          (x) => x.lesson?.type === "video" && x.lesson?.content,
-        ) || allLessons[0];
-      setCurrentLessonId(firstVideo.lesson.id);
+    if (allLessons.length > 0 && !isInitialLessonSet) {
+      if (lastLessonIdFromDb && allLessons.some(x => x.lesson.id === lastLessonIdFromDb)) {
+        setCurrentLessonId(lastLessonIdFromDb);
+      } else if (!currentLessonId) {
+        const firstVideo =
+          allLessons.find(
+            (x) => x.lesson?.type === "video" && x.lesson?.content,
+          ) || allLessons[0];
+        setCurrentLessonId(firstVideo.lesson.id);
+      }
+      setIsInitialLessonSet(true);
     }
+    
     if (openModules.length === 0 && displayModules.length > 0) {
       setOpenModules([displayModules[0]?.id || "0"]);
     }
-  }, [allLessons, currentLessonId, displayModules, openModules.length]);
+  }, [allLessons, currentLessonId, displayModules, openModules.length, lastLessonIdFromDb, isInitialLessonSet]);
+
+  // Salvar última aula acessada no enrollment
+  useEffect(() => {
+    if (!id || !user?.uid || !currentLessonId || !isEnrolled) return;
+    
+    const saveLastLesson = async () => {
+        try {
+            const q = query(
+                collection(db, "enrollments"),
+                where("course_id", "==", id),
+                where("user_uid", "==", user.uid)
+            );
+            const snap = await getDocs(q);
+            snap.forEach(async (d) => {
+                await updateDoc(d.ref, {
+                    last_lesson_id: currentLessonId,
+                    last_accessed: serverTimestamp()
+                });
+            });
+        } catch (err) {
+            console.warn("Erro ao salvar última aula:", err);
+        }
+    };
+    
+    // Debounce de 2 segundos para não sobrecarregar o Firebase
+    const timer = setTimeout(saveLastLesson, 2000);
+    return () => clearTimeout(timer);
+  }, [currentLessonId, id, user?.uid, isEnrolled]);
 
   const current = useMemo(
     () => allLessons.find((x) => x.lesson.id === currentLessonId) || null,
@@ -1212,36 +1293,35 @@ const CoursePlayerPage: React.FC = () => {
           </Link>
           <div className="h-8 w-[1px] bg-gray-200"></div>
           
-          <div>
+          <div className="flex flex-col min-w-0">
             <h1
-              className="font-bold text-sm md:text-base truncate max-w-[200px] md:max-w-md"
+              className="font-black text-[13px] md:text-base truncate max-w-[140px] xs:max-w-[180px] sm:max-w-xs md:max-w-md"
               style={{ color: "#0E7038" }}
             >
               {courseTitle}
             </h1>
             <div
-              className="flex items-center gap-2 text-xs"
+              className="flex items-center gap-1.5 md:gap-2 mt-0.5"
               style={{ color: "#0E7038" }}
             >
-              <span className="hidden md:inline">Progresso:</span>
-              <div className="w-24 h-1.5 rounded-full overflow-hidden border border-gray-300 bg-gray-100">
+              <div className="w-16 md:w-24 h-1 md:h-1.5 rounded-full overflow-hidden border border-gray-200 bg-gray-50">
                 <div
                   style={{
                     width: `${progressWidth}%`,
                     backgroundColor: "#0E7038",
                   }}
-                  className="h-full rounded-full transition-all duration-300"
+                  className="h-full rounded-full transition-all duration-300 shadow-[0_0_8px_rgba(14,112,56,0.3)]"
                 ></div>
               </div>
-              <span className="font-semibold" style={{ color: "#0E7038" }}>
+              <span className="text-[10px] md:text-xs font-bold" style={{ color: "#0E7038" }}>
                 {progressPercentage}%
               </span>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* BOTÃO HAMBURGUER (LISTA DE AULAS) - AGORA À DIREITA, PRÓXIMO À SIDEBAR */}
+        <div className="flex items-center gap-2 md:gap-3">
+          {/* BOTÃO CONTEÚDOS: Sempre visível, mas etiqueta oculta no mobile para poupar espaço */}
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all duration-300 ${
@@ -1251,33 +1331,23 @@ const CoursePlayerPage: React.FC = () => {
             }`}
           >
             <Menu className="w-5 h-5" />
-            <span className="text-xs font-bold uppercase tracking-wider hidden sm:inline">
+            <span className="text-xs font-bold uppercase tracking-wider hidden md:inline">
               Conteúdos
             </span>
           </button>
 
-          {/* Outros botões podem vir aqui (ex: ajuda, sair) */}
-          {/* Mobile: Dropdown para Certificado */}
-          <div className="md:hidden relative group">
-            <button
-              onClick={() =>
-                progressPercentage === 100 && setShowCertificateModal(true)
-              }
-              disabled={progressPercentage < 100}
-              className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors border ${
-                progressPercentage === 100
-                  ? "border-2 text-white cursor-pointer"
-                  : "border border-gray-300 cursor-not-allowed"
-              }`}
-              style={
-                progressPercentage === 100
-                  ? { backgroundColor: "#0E7038" }
-                  : { color: "#9CA3AF" }
-              }
-            >
-              <Award className="w-4 h-4" />
-            </button>
-          </div>
+          {/* Certificado no Mobile: Ícone simples */}
+          <button
+            onClick={() => progressPercentage === 100 && setShowCertificateModal(true)}
+            disabled={progressPercentage < 100}
+            className={`md:hidden p-2 rounded-xl border transition-all ${
+                progressPercentage === 100 
+                ? "bg-amber-100 border-amber-200 text-amber-600 shadow-sm" 
+                : "bg-gray-50 border-gray-100 text-gray-300 opacity-50"
+            }`}
+          >
+            <Award className="w-5 h-5" />
+          </button>
           <div className="hidden md:flex items-center gap-3">
             <button
               onClick={() =>
@@ -1349,12 +1419,13 @@ const CoursePlayerPage: React.FC = () => {
               })()}
             </div>
           ) : current?.lesson?.type === "text" ? (
-            <div className="w-full bg-slate-50">
-              <div className="max-w-4xl mx-auto px-6 py-8">
+            <div className="w-full bg-[#f8fafc] min-h-full">
+              <div className="max-w-4xl mx-auto px-3 md:px-6 py-4 md:py-8 pb-32 md:pb-8">
                 <MascotReader
                   content={current.lesson.content || ""}
                   onFinished={markLessonAsComplete}
                   mascotUrl={course?.mascotUrl}
+                  isFinishing={isFinishingLesson}
                 />
               </div>
             </div>
@@ -1449,11 +1520,77 @@ const CoursePlayerPage: React.FC = () => {
                 })()}
               </div>
             </div>
-          ) : (
-            <div className="w-full aspect-video bg-black relative">
-              <div className="absolute inset-0 flex items-center justify-center text-white/80">
-                Selecione uma aula
+          ) : current?.lesson?.type === "image" && current?.lesson?.content ? (
+            <div className="w-full bg-[#f8fafc] flex items-center justify-center p-4 min-h-[60vh]">
+              <div className="max-w-4xl w-full bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-100 p-2 group transition-all duration-500">
+                <div className="relative overflow-hidden rounded-2xl">
+                  <img
+                    src={getDownloadUrl(current.lesson.content)}
+                    alt={current.lesson.title || "Imagem da aula"}
+                    className="w-full h-auto object-contain max-h-[75vh]"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.onerror = null;
+                      target.src = "https://placehold.co/800x600?text=Erro+ao+carregar+imagem";
+                    }}
+                  />
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/20 to-transparent h-20 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+                <div className="p-4 flex items-center justify-between">
+                    <h3 className="font-black text-brand-green/80 text-sm uppercase tracking-wide">Conteúdo Visual</h3>
+                    <a 
+                        href={getDownloadUrl(current.lesson.content)} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="px-4 py-2 bg-brand-green/5 text-brand-green text-xs font-black rounded-xl hover:bg-brand-green hover:text-white transition-all uppercase tracking-tighter"
+                    >
+                        Abrir Original
+                    </a>
+                </div>
               </div>
+            </div>
+          ) : (
+            <div className="w-full min-h-[60vh] bg-white flex flex-col items-center justify-center p-8 text-center">
+              {loading ? (
+                <div className="flex flex-col items-center gap-4">
+                  <div className="w-12 h-12 border-4 border-brand-green/20 border-t-brand-green rounded-full animate-spin" />
+                  <p className="text-gray-500 font-medium italic">Preparando sua aula...</p>
+                </div>
+              ) : !currentLessonId ? (
+                <div className="flex flex-col items-center">
+                  <Play className="w-16 h-16 text-gray-200 mb-4" />
+                  <h2 className="text-xl font-bold text-gray-700">Bem-vindo ao Player</h2>
+                  <p className="text-gray-500">Selecione uma aula na lista ao lado para começar.</p>
+                </div>
+              ) : (
+                <div className="animate-in fade-in zoom-in duration-500">
+                  <div className="w-24 h-24 bg-brand-green/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <CheckCircle className="w-12 h-12 text-brand-green" />
+                  </div>
+                  <h2 className="text-3xl font-black text-gray-900 mb-2">
+                    Objetivo Alcançado!
+                  </h2>
+                  <p className="text-gray-500 max-w-md mx-auto mb-10 text-lg">
+                    Você concluiu este conteúdo com sucesso. O seu progresso foi guardado e está pronto para o próximo desafio.
+                  </p>
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                      <button 
+                        onClick={() => setActiveTab("overview")}
+                        className="w-full sm:w-auto px-8 py-3 bg-brand-green text-white font-black rounded-2xl shadow-xl shadow-brand-green/20 hover:scale-105 transition-all text-sm uppercase tracking-widest"
+                      >
+                        Ver Resumo do Curso
+                      </button>
+                      {progressPercentage === 100 && (
+                          <button 
+                            onClick={() => setShowCertificateModal(true)}
+                            className="w-full sm:w-auto px-8 py-3 bg-amber-500 text-white font-black rounded-2xl shadow-xl shadow-amber-500/20 hover:scale-105 transition-all text-sm uppercase tracking-widest"
+                          >
+                            Emitir Certificado
+                          </button>
+                      )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1956,6 +2093,7 @@ const CoursePlayerPage: React.FC = () => {
                     results={exerciseResults}
                     showToast={showToast}
                     completedList={completedExercises}
+                    getDownloadUrl={getDownloadUrl}
                   />
                 </div>
               )}
@@ -2093,6 +2231,27 @@ const CoursePlayerPage: React.FC = () => {
           </div>
         </aside>
 
+        {/* Mobile Bottom Navigation */}
+        <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-6 py-4 flex items-center justify-between z-40 shadow-[0_-10px_25px_rgba(0,0,0,0.05)]">
+            <button
+                onClick={goPrev}
+                disabled={!current || allLessons.findIndex(x => x.lesson.id === current.lesson.id) === 0}
+                className="flex items-center gap-2 text-sm font-bold text-gray-500 disabled:opacity-20"
+            >
+                <ChevronLeft className="w-5 h-5" />
+                Anterior
+            </button>
+            <div className="h-8 w-px bg-gray-100" />
+            <button
+                onClick={goNext}
+                disabled={!current || allLessons.findIndex(x => x.lesson.id === current.lesson.id) === allLessons.length - 1}
+                className="flex items-center gap-2 text-sm font-black text-brand-green disabled:opacity-20"
+            >
+                Próxima
+                <ChevronRight className="w-5 h-5" />
+            </button>
+        </div>
+
         {/* Toast Notification */}
         {toast && (
           <div
@@ -2131,6 +2290,7 @@ const InteractiveQuiz = ({
   results,
   showToast,
   completedList,
+  getDownloadUrl,
 }: any) => {
   const list = useMemo(() => {
     const all = Array.isArray(course?.interactiveExercises)
@@ -2368,6 +2528,17 @@ const InteractiveQuiz = ({
               </div>
             )}
           </div>
+
+          {(ex.imageUrl || ex.image || ex.img) && (
+            <div className="bg-gray-100 p-1">
+                <img 
+                    src={getDownloadUrl(ex.imageUrl || ex.image || ex.img)} 
+                    alt="Imagem do exercício"
+                    className="w-full h-auto max-h-[300px] object-contain rounded-lg"
+                    onError={(e) => { (e.target as any).src = 'https://placehold.co/400x200?text=Imagem+Nao+Encontrada'; }}
+                />
+            </div>
+          )}
 
           {ex.type === "quiz" && (
             <div className="p-4 space-y-3">
@@ -2761,7 +2932,7 @@ const Comment = ({
             />
             <button
               onClick={onReplySubmit}
-              className="p-2 bg-brand-green text-white rounded-full hover:bg-brand-dark transition-all active:scale-95 shadow-md"
+              className="p-2 bg-brand-green text-white rounded-full hover:bg-brand-dark transition-all active:scale-95 shadow-md flex items-center justify-center flex-shrink-0"
               title="Enviar resposta"
             >
               <Upload className="w-4 h-4 rotate-90" />
