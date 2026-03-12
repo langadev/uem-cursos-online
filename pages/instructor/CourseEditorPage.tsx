@@ -838,6 +838,25 @@ const CourseEditorPage: React.FC = () => {
     });
   };
 
+  const moveModule = (moduleIndex: number, direction: "up" | "down") => {
+    setFormData((prev) => {
+      const mods = [...prev.modules];
+      const target = direction === "up" ? moduleIndex - 1 : moduleIndex + 1;
+      if (target < 0 || target >= mods.length) return prev;
+      [mods[moduleIndex], mods[target]] = [mods[target], mods[moduleIndex]];
+      return { ...prev, modules: mods };
+    });
+  };
+
+  const reorderModule = (from: number, to: number) => {
+    setFormData((prev) => {
+      const mods = [...prev.modules];
+      const [moved] = mods.splice(from, 1);
+      mods.splice(to, 0, moved);
+      return { ...prev, modules: mods };
+    });
+  };
+
   const addLesson = (moduleId: string, type: "video" | "text" | "document") => {
     const newLesson: Lesson = {
       id: Math.random().toString(36).substr(2, 9),
@@ -850,6 +869,44 @@ const CourseEditorPage: React.FC = () => {
       modules: formData.modules.map((m) =>
         m.id === moduleId ? { ...m, lessons: [...m.lessons, newLesson] } : m,
       ),
+    });
+  };
+
+  const moveLesson = (
+    moduleId: string,
+    lessonIndex: number,
+    direction: "up" | "down",
+  ) => {
+    setFormData((prev) => {
+      const modules = prev.modules.map((m) => {
+        if (m.id !== moduleId) return m;
+        const lessons = [...m.lessons];
+        const target = direction === "up" ? lessonIndex - 1 : lessonIndex + 1;
+        if (target < 0 || target >= lessons.length) return m;
+        [lessons[lessonIndex], lessons[target]] = [
+          lessons[target],
+          lessons[lessonIndex],
+        ];
+        return { ...m, lessons };
+      });
+      return { ...prev, modules };
+    });
+  };
+
+  const reorderLesson = (
+    moduleId: string,
+    from: number,
+    to: number,
+  ) => {
+    setFormData((prev) => {
+      const modules = prev.modules.map((m) => {
+        if (m.id !== moduleId) return m;
+        const lessons = [...m.lessons];
+        const [moved] = lessons.splice(from, 1);
+        lessons.splice(to, 0, moved);
+        return { ...m, lessons };
+      });
+      return { ...prev, modules };
     });
   };
 
@@ -2277,12 +2334,44 @@ const CourseEditorPage: React.FC = () => {
               </div>
 
               <div className="space-y-6">
-                {formData.modules.map((module) => (
+                {formData.modules.map((module, mi) => (
                   <div
                     key={module.id}
-                    className="border border-gray-100 rounded-2xl bg-white shadow-sm overflow-hidden animate-in slide-in-from-bottom-4 duration-300"
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("moduleIndex", mi.toString());
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      const from = parseInt(
+                        e.dataTransfer.getData("moduleIndex") || "",
+                        10,
+                      );
+                      if (!isNaN(from) && from !== mi) {
+                        reorderModule(from, mi);
+                      }
+                    }}
+                    className="relative group border border-gray-100 rounded-2xl bg-white shadow-sm overflow-hidden animate-in slide-in-from-bottom-4 duration-300"
                   >
-                    <div className="p-5 bg-slate-50/80 border-b border-gray-100 flex justify-between items-center">
+                    <div className="p-5 bg-slate-50/80 border-b border-gray-100 flex justify-between items-center relative">
+                      <div className="absolute -left-10 top-1/2 -translate-y-1/2 flex flex-col items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          disabled={mi === 0}
+                          onClick={() => moveModule(mi, "up")}
+                          className="p-1 text-gray-400 hover:text-brand-green disabled:opacity-30"
+                        >
+                          <ChevronDown size={14} className="rotate-180" />
+                        </button>
+                        <GripVertical size={14} className="text-gray-300" />
+                        <button
+                          disabled={mi === formData.modules.length - 1}
+                          onClick={() => moveModule(mi, "down")}
+                          className="p-1 text-gray-400 hover:text-brand-green disabled:opacity-30"
+                        >
+                          <ChevronDown size={14} />
+                        </button>
+                      </div>
                       <div className="flex items-center gap-4 flex-1">
                         <div className="p-2 bg-white border border-gray-200 rounded-lg text-slate-400">
                           <List size={16} />
@@ -2310,11 +2399,50 @@ const CourseEditorPage: React.FC = () => {
                     </div>
 
                     <div className="p-5 space-y-4">
-                      {module.lessons.map((lesson) => (
+                      {module.lessons.map((lesson, li) => (
                         <div
                           key={lesson.id}
-                          className="p-5 border border-slate-100 rounded-2xl bg-gray-50/30 space-y-4 group"
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData("lesson-moduleId", module.id);
+                            e.dataTransfer.setData("lessonIndex", li.toString());
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => {
+                            const fromModule = e.dataTransfer.getData("lesson-moduleId");
+                            const fromIndex = parseInt(
+                              e.dataTransfer.getData("lessonIndex") || "",
+                              10,
+                            );
+                            if (
+                              fromModule === module.id &&
+                              !isNaN(fromIndex) &&
+                              fromIndex !== li
+                            ) {
+                              reorderLesson(module.id, fromIndex, li);
+                            }
+                          }}
+                          className="relative p-5 border border-slate-100 rounded-2xl bg-gray-50/30 space-y-4 group"
                         >
+                          {/* move controls */}
+                          <div className="absolute -left-10 top-1/2 -translate-y-1/2 flex flex-col items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              disabled={li === 0}
+                              onClick={() => moveLesson(module.id, li, "up")}
+                              className="p-1 text-gray-400 hover:text-brand-green disabled:opacity-30"
+                            >
+                              <ChevronDown size={14} className="rotate-180" />
+                            </button>
+                            <GripVertical size={14} className="text-gray-300" />
+                            <button
+                              disabled={li === module.lessons.length - 1}
+                              onClick={() => moveLesson(module.id, li, "down")}
+                              className="p-1 text-gray-400 hover:text-brand-green disabled:opacity-30"
+                            >
+                              <ChevronDown size={14} />
+                            </button>
+                          </div>
                           <div className="flex items-start justify-between">
                             <div className="flex items-center gap-3 flex-1">
                               <div
