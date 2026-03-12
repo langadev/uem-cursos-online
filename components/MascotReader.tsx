@@ -146,7 +146,8 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
                    lastSpokenSlideRef.current = currentSlideIndex;
                 }
               }}
-              className="px-14 py-5 bg-brand-green hover:bg-white hover:text-brand-green text-white font-black text-xl rounded-full shadow-[0_20px_40px_-10px_rgba(14,112,56,0.5)] transition-all active:scale-95 flex items-center gap-4 mx-auto group"
+              // keep the button green on hover and keep text white to avoid disappearing text
+            className="px-14 py-5 bg-brand-green hover:bg-brand-dark text-white font-black text-xl rounded-full shadow-[0_20px_40px_-10px_rgba(14,112,56,0.5)] transition-all active:scale-95 flex items-center gap-4 mx-auto"
             >
               <Play className="w-6 h-6 fill-current" />
               COMECAR AGORA
@@ -278,7 +279,9 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
             <div className="flex items-center gap-3">
                 <div className="flex -space-x-1">
                     {[...Array(Math.min(slides.length, 5))].map((_, i) => (
-                        <div key={i} className={`w-2 h-2 rounded-full border border-white ${i <= currentSlideIndex ? 'bg-brand-green' : 'bg-gray-200'}`} />
+                        <div key={i} className={`w-2 h-2 rounded-full border border-white ${i <= currentSlideIndex ? 'bg-brand-green text-white' : 'bg-gray-200'}`}>
+                          {/* keep potential number visible */}
+                        </div>
                     ))}
                 </div>
                 <span className="text-[12px] font-bold text-gray-400">Página {currentSlideIndex + 1} de {slides.length}</span>

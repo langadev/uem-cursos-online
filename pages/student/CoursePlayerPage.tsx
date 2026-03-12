@@ -20,7 +20,6 @@ import {
   ChevronRight,
   Circle,
   Download,
-  File,
   FileText,
   Lock,
   Menu,
@@ -49,29 +48,29 @@ const CoursePlayerPage: React.FC = () => {
   const { user, profile } = useAuth();
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
   const [activeTab, setActiveTab] = useState<
-    "overview" | "materials" | "uploads" | "comments" | "interactive"
+    "overview" | "materials" | "interactive" | "feedback"
   >("overview");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [openModules, setOpenModules] = useState<string[]>([]);
   const [currentLessonId, setCurrentLessonId] = useState("");
-  const [uploadedFiles, setUploadedFiles] = useState<any[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [course, setCourse] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [isFinishingLesson, setIsFinishingLesson] = useState(false);
   const [isEnrolled, setIsEnrolled] = useState(false);
+  const [enrollmentLoaded, setEnrollmentLoaded] = useState(false);
   const [lastLessonIdFromDb, setLastLessonIdFromDb] = useState("");
   const [isInitialLessonSet, setIsInitialLessonSet] = useState(false);
   const [fallbackModules, setFallbackModules] = useState<any[]>([]);
-  const [questions, setQuestions] = useState<any[]>([]);
-  const [newQuestion, setNewQuestion] = useState("");
-  const [answersByQ, setAnswersByQ] = useState<Record<string, any[]>>({});
-  const [openReplies, setOpenReplies] = useState<Record<string, boolean>>({});
-  const [replyDraft, setReplyDraft] = useState<Record<string, string>>({});
-  const answersSubsRef = useRef<Record<string, () => void>>({});
   const [completedLessons, setCompletedLessons] = useState<Set<string>>(
     new Set(),
   );
+  
+  // expectations flow
+  const [expectations, setExpectations] = useState<string>("");
+  const [showExpectationsModal, setShowExpectationsModal] = useState(false);
+  const [tempExpectations, setTempExpectations] = useState("");
+  const [finalReview, setFinalReview] = useState<{ met: boolean; comments?: string } | null>(null);
+  const [showFinalModal, setShowFinalModal] = useState(false);
   const [toast, setToast] = useState<{
     message: string;
     type: "success" | "error";
@@ -102,20 +101,61 @@ const CoursePlayerPage: React.FC = () => {
     setTimeout(() => setToast(null), 3500);
   };
 
+  // Guarda expectativas no enrollment e estado local
+  const saveExpectations = async () => {
+    if (!id || !user?.uid) return;
+    try {
+      const q = query(
+        collection(db, "enrollments"),
+        where("course_id", "==", id),
+        where("user_uid", "==", user.uid),
+      );
+      const snap = await getDocs(q);
+      snap.forEach(async (d) => {
+        await updateDoc(d.ref, { expectations: tempExpectations });
+      });
+      setExpectations(tempExpectations);
+      setShowExpectationsModal(false);
+      showToast("Expectativas salvas!", "success");
+    } catch (e) {
+      console.error("Erro ao salvar expectativas:", e);
+      showToast("Não foi possível salvar expectativas.", "error");
+    }
+  };
+
+  // Submete avaliação final das expectativas
+  const submitFinalReview = async (met: boolean, comments?: string) => {
+    if (!id || !user?.uid) return;
+    try {
+      const q = query(
+        collection(db, "enrollments"),
+        where("course_id", "==", id),
+        where("user_uid", "==", user.uid),
+      );
+      const snap = await getDocs(q);
+      snap.forEach(async (d) => {
+        await updateDoc(d.ref, {
+          final_review_met: met,
+          final_review_comments: comments || "",
+        });
+      });
+      setFinalReview({ met, comments });
+      setShowFinalModal(false);
+      showToast("Obrigado pelo seu feedback!", "success");
+    } catch (e) {
+      console.error("Erro ao salvar avaliação final:", e);
+      showToast("Não foi possível enviar sua avaliação.", "error");
+    }
+  };
+
   // Controlar leitura de texto (text-to-speech)
   // legacy reading functionality removed; see MascotReader component instead.
 
   // timer-based gating removed; lessons are now marked complete when the mascot reader finishes (handled below)
 
-  // Cleanup de subscriptions de respostas ao desmontar
+  // Cleanup ao desmontar (cancelar leitura de voz)
   useEffect(() => {
     return () => {
-      Object.values(answersSubsRef.current || {}).forEach((u) => {
-        try {
-          if (typeof u === "function") u();
-        } catch {}
-      });
-      answersSubsRef.current = {};
       // Parar leitura ao desmontar
       window.speechSynthesis.cancel();
     };
@@ -218,64 +258,6 @@ const CoursePlayerPage: React.FC = () => {
     }
   };
 
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    try {
-      const file = e.target.files?.[0];
-      if (!file || !id || !user?.uid) return;
-
-      // Sanitizar nome do arquivo - remover caracteres especiais
-      const sanitizedFileName = file.name
-        .normalize("NFD") // Decompor caracteres acentuados
-        .replace(/[\u0300-\u036f]/g, "") // Remover diacríticos
-        .replace(/[^a-zA-Z0-9._-]/g, "_") // Substituir caracteres especiais por underscore
-        .replace(/_{2,}/g, "_"); // Remover underscores múltiplos
-
-      const filePath = `submissions/${id}/${user.uid}/${Date.now()}_${sanitizedFileName}`;
-      let publicUrl = "";
-      if (isSupabaseConfigured) {
-        const { error: upErr } = await supabase.storage
-          .from("course-files")
-          .upload(filePath, file, {
-            upsert: true,
-            contentType: file.type || "application/octet-stream",
-          });
-        if (upErr) throw upErr;
-        publicUrl =
-          supabase.storage.from("course-files").getPublicUrl(filePath).data
-            .publicUrl || "";
-      } else {
-        alert("Upload indisponível: Supabase não configurado.");
-        return;
-      }
-      const sizeMb = (file.size / (1024 * 1024)).toFixed(1) + " MB";
-      await addDoc(collection(db, "submissions"), {
-        course_id: id,
-        lesson_id: currentLessonId || null,
-        user_uid: user.uid,
-        user_name: user.displayName || "Formando",
-        instructor_uid: course?.instructor_uid || course?.creator_uid || null,
-        course_title: course?.title || "",
-        lesson_title: current?.lesson?.title || "",
-        fileName: file.name,
-        fileType: file.type || "",
-        size: sizeMb,
-        url: publicUrl,
-        createdAt: serverTimestamp(),
-      });
-      e.target.value = "";
-    } catch (err) {
-      console.error("Falha no upload do exercício:", err);
-      alert("Não foi possível enviar seu exercício. Tente novamente.");
-    }
-  };
-
-  const removeFile = (fileId: string) => {
-    setUploadedFiles(uploadedFiles.filter((f) => f.id !== fileId));
-  };
 
   // Carregar curso e acompanhar em tempo real
   useEffect(() => {
@@ -294,60 +276,14 @@ const CoursePlayerPage: React.FC = () => {
   }, [id]);
 
   // Replies helpers
-  const ensureAnswersSub = (qid: string) => {
-    if (answersSubsRef.current[qid]) return;
-    try {
-      const q = query(
-        collection(db, "questions", qid, "answers"),
-        orderBy("createdAt", "asc"),
-      );
-      const unsub = onSnapshot(q, (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setAnswersByQ((prev) => ({ ...prev, [qid]: list }));
-      });
-      answersSubsRef.current[qid] = unsub;
-    } catch {}
-  };
-  const toggleReplies = (qid: string) => {
-    setOpenReplies((prev) => {
-      const open = !prev[qid];
-      if (open) ensureAnswersSub(qid);
-      else {
-        const u = answersSubsRef.current[qid];
-        if (u) {
-          u();
-          delete answersSubsRef.current[qid];
-        }
-      }
-      return { ...prev, [qid]: open };
-    });
-  };
-  const sendReply = async (q: any) => {
-    const txt = (replyDraft[q.id] || "").trim();
-    if (!txt || !user?.uid) return;
-    try {
-      await addDoc(collection(db, "questions", q.id, "answers"), {
-        text: txt,
-        author_uid: user.uid,
-        author_name: user.displayName || profile?.full_name || "Estudante",
-        author_role: "student",
-        createdAt: serverTimestamp(),
-      });
-      await updateDoc(doc(db, "questions", q.id), {
-        repliesCount: increment(1),
-        lastActivity: serverTimestamp(),
-      });
-      setReplyDraft((prev) => ({ ...prev, [q.id]: "" }));
-      setOpenReplies((prev) => ({ ...prev, [q.id]: true }));
-      ensureAnswersSub(q.id);
-      showToast("Resposta enviada!", "success");
-    } catch {
-      showToast("Erro ao enviar resposta.", "error");
-    }
-  };
 
   // Marcar aula como concluída
   const markLessonAsComplete = async () => {
+    if (!expectations) {
+      setShowExpectationsModal(true);
+      showToast("Por favor, registre suas expectativas antes de concluir a aula.", "error");
+      return;
+    }
     if (isFinishingLesson) return;
     if (!user?.uid || !id || !current?.lesson?.id) {
       showToast("Erro ao marcar aula como concluída.", "error");
@@ -463,6 +399,7 @@ const CoursePlayerPage: React.FC = () => {
     const checkEnrollment = async () => {
       if (!user?.uid || !id) {
         setIsEnrolled(false);
+        setEnrollmentLoaded(true);
         return;
       }
       try {
@@ -479,12 +416,24 @@ const CoursePlayerPage: React.FC = () => {
             if (data.last_lesson_id) {
                 setLastLessonIdFromDb(data.last_lesson_id);
             }
+            // load expectations and final review so modal doesn't reappear
+            if (data.expectations) {
+              setExpectations(data.expectations);
+            }
+            if (data.final_review_met !== undefined || data.final_review_comments !== undefined) {
+              setFinalReview({
+                met: !!data.final_review_met,
+                comments: data.final_review_comments || "",
+              });
+            }
         } else {
             setIsEnrolled(false);
         }
       } catch {
         setIsEnrolled(false);
       }
+      // mark that enrollment info has been fetched regardless of success
+      setEnrollmentLoaded(true);
     };
     checkEnrollment();
   }, [user?.uid, id]);
@@ -543,85 +492,7 @@ const CoursePlayerPage: React.FC = () => {
     }
   }, [id, user?.uid]);
 
-  // Carregar dúvidas (questions) em tempo real para o curso atual
-  useEffect(() => {
-    if (!id) return;
 
-    let unsub: (() => void) | null = null;
-
-    const startQuery = (useOrderBy: boolean) => {
-      const q = useOrderBy
-        ? query(
-            collection(db, "questions"),
-            where("course_id", "==", id),
-            orderBy("createdAt", "desc"),
-          )
-        : query(collection(db, "questions"), where("course_id", "==", id));
-
-      return onSnapshot(
-        q,
-        (snap) => {
-          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-          setQuestions(list);
-        },
-        (err) => {
-          console.error("Erro na consulta de questões:", err);
-          if (useOrderBy) {
-            console.log(
-              "Tentando consulta sem orderBy (provável falta de índice)...",
-            );
-            if (unsub) unsub();
-            unsub = startQuery(false);
-          }
-        },
-      );
-    };
-
-    unsub = startQuery(true);
-    return () => {
-      if (unsub) unsub();
-    };
-  }, [id]);
-
-  // Carregar submissões do aluno para este curso
-  useEffect(() => {
-    if (!id || !user?.uid) {
-      setUploadedFiles([]);
-      return;
-    }
-    try {
-      const startSubmissionsQuery = (useOrderBy: boolean) => {
-        const q = useOrderBy 
-          ? query(
-              collection(db, "submissions"),
-              where("course_id", "==", id),
-              where("user_uid", "==", user.uid),
-              orderBy("createdAt", "desc"),
-            )
-          : query(
-              collection(db, "submissions"),
-              where("course_id", "==", id),
-              where("user_uid", "==", user.uid),
-            );
-
-        return onSnapshot(q, (snap) => {
-          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-          setUploadedFiles(list);
-        }, (err) => {
-          console.error("Erro na consulta de submissões:", err);
-          if (useOrderBy) {
-            console.log("Tentando consulta de submissões sem orderBy...");
-            unsub = startSubmissionsQuery(false);
-          }
-        });
-      };
-
-      let unsub = startSubmissionsQuery(true);
-      return () => unsub();
-    } catch (err) {
-      console.error("Erro ao configurar listener de submissões:", err);
-    }
-  }, [id, user?.uid]);
 
   // Normalizar módulos/aulas do documento
   const normalizedModules = useMemo(() => {
@@ -958,6 +829,19 @@ const CoursePlayerPage: React.FC = () => {
     }
   }, [allLessons, currentLessonId, displayModules, openModules.length, lastLessonIdFromDb, isInitialLessonSet]);
 
+  // when the first lesson is assigned, prompt for expectations if not yet collected
+  useEffect(() => {
+    // only prompt once enrollment data has been fetched
+    if (
+      enrollmentLoaded &&
+      isInitialLessonSet &&
+      !expectations &&
+      !showExpectationsModal
+    ) {
+      setShowExpectationsModal(true);
+    }
+  }, [enrollmentLoaded, isInitialLessonSet, expectations, showExpectationsModal]);
+
   // Salvar última aula acessada no enrollment
   useEffect(() => {
     if (!id || !user?.uid || !currentLessonId || !isEnrolled) return;
@@ -1273,6 +1157,11 @@ const CoursePlayerPage: React.FC = () => {
     if (idx > 0) setCurrentLessonId(allLessons[idx - 1].lesson.id);
   };
   const goNext = () => {
+    // ensure expectations have been provided before allowing progression
+    if (!expectations) {
+      setShowExpectationsModal(true);
+      return;
+    }
     if (!current) return;
     const idx = allLessons.findIndex((x) => x.lesson.id === current.lesson.id);
     if (idx >= 0 && idx < allLessons.length - 1)
@@ -1324,14 +1213,14 @@ const CoursePlayerPage: React.FC = () => {
           {/* BOTÃO CONTEÚDOS: Sempre visível, mas etiqueta oculta no mobile para poupar espaço */}
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all duration-300 ${
+            className={`group flex items-center gap-2 px-3 py-2 rounded-xl transition-all duration-300 ${
               isSidebarOpen 
                 ? "bg-brand-green text-white shadow-md shadow-brand-green/20" 
                 : "bg-slate-100 text-brand-green hover:bg-brand-green hover:text-white"
             }`}
           >
             <Menu className="w-5 h-5" />
-            <span className="text-xs font-bold uppercase tracking-wider hidden md:inline">
+            <span className="text-xs font-bold uppercase tracking-wider hidden md:inline group-hover:text-white">
               Conteúdos
             </span>
           </button>
@@ -1350,17 +1239,23 @@ const CoursePlayerPage: React.FC = () => {
           </button>
           <div className="hidden md:flex items-center gap-3">
             <button
-              onClick={() =>
-                progressPercentage === 100 && setShowCertificateModal(true)
-              }
-              disabled={progressPercentage < 100}
+              onClick={() => {
+                if (progressPercentage === 100) {
+                  if (finalReview) {
+                    setShowCertificateModal(true);
+                  } else {
+                    showToast("Avalie as expectativas antes de emitir o certificado.", "error");
+                  }
+                }
+              }}
+              disabled={progressPercentage < 100 || !finalReview}
               className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors border ${
-                progressPercentage === 100
+                progressPercentage === 100 && finalReview
                   ? "border-2 text-white cursor-pointer"
                   : "border border-gray-300 cursor-not-allowed"
               }`}
               style={
-                progressPercentage === 100
+                progressPercentage === 100 && finalReview
                   ? { backgroundColor: "#0E7038" }
                   : { color: "#9CA3AF" }
               }
@@ -1582,8 +1477,12 @@ const CoursePlayerPage: React.FC = () => {
                       </button>
                       {progressPercentage === 100 && (
                           <button 
-                            onClick={() => setShowCertificateModal(true)}
-                            className="w-full sm:w-auto px-8 py-3 bg-amber-500 text-white font-black rounded-2xl shadow-xl shadow-amber-500/20 hover:scale-105 transition-all text-sm uppercase tracking-widest"
+                            onClick={() => {
+                              if (finalReview) setShowCertificateModal(true);
+                              else showToast("Avalie as expectativas antes de emitir o certificado.", "error");
+                            }}
+                            disabled={!finalReview}
+                            className="w-full sm:w-auto px-8 py-3 bg-amber-500 text-white font-black rounded-2xl shadow-xl shadow-amber-500/20 hover:scale-105 transition-all text-sm uppercase tracking-widest disabled:opacity-50 cursor-not-allowed"
                           >
                             Emitir Certificado
                           </button>
@@ -1648,19 +1547,14 @@ const CoursePlayerPage: React.FC = () => {
                 label="Materiais Complementares"
               />
               <TabButton
-                active={activeTab === "uploads"}
-                onClick={() => setActiveTab("uploads")}
-                label="Enviar Exercícios"
-              />
-              <TabButton
-                active={activeTab === "comments"}
-                onClick={() => setActiveTab("comments")}
-                label={`Dúvidas (${questions.length})`}
-              />
-              <TabButton
                 active={activeTab === "interactive"}
                 onClick={() => setActiveTab("interactive")}
                 label="Exercícios Interativos"
+              />
+              <TabButton
+                active={activeTab === "feedback"}
+                onClick={() => setActiveTab("feedback")}
+                label="Feedback"
               />
             </div>
 
@@ -1825,245 +1719,7 @@ const CoursePlayerPage: React.FC = () => {
                 </div>
               )}
 
-              {activeTab === "uploads" && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <div
-                    className="bg-slate-50 border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-brand-green hover:bg-green-50/30 transition-all group cursor-pointer"
-                    onClick={handleUploadClick}
-                  >
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      className="hidden"
-                      onChange={handleFileChange}
-                    />
-                    <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:bg-brand-green group-hover:text-white transition-colors">
-                      <Upload className="w-8 h-8 text-gray-400 group-hover:text-white" />
-                    </div>
-                    <h3 className="text-lg font-bold text-gray-900 mb-1">
-                      Clique ou arraste seu arquivo
-                    </h3>
-                    <p className="text-gray-500 text-sm max-w-xs mx-auto">
-                      Envie seus exercícios práticos ou prints do seu progresso
-                      para correção ou feedback. (PNG, JPG, PDF, FIG, ZIP)
-                    </p>
-                  </div>
 
-                  <div className="space-y-3">
-                    <h4 className="text-sm font-bold text-gray-700 uppercase tracking-wider px-1">
-                      Seus Envios ({uploadedFiles.length})
-                    </h4>
-                    {uploadedFiles.length > 0 ? (
-                      uploadedFiles.map((file: any) => (
-                        <a
-                          key={file.id}
-                          href={file.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center p-4 bg-slate-50 border border-gray-100 rounded-xl hover:shadow-sm transition-shadow"
-                        >
-                          <div className="p-2.5 bg-brand-light rounded-lg">
-                            <File className="w-5 h-5 text-brand-green" />
-                          </div>
-                          <div className="ml-4 flex-1 min-w-0">
-                            <h5 className="font-bold text-gray-800 text-sm truncate">
-                              {file.fileName}
-                            </h5>
-                            <p className="text-xs text-gray-400">
-                              {file.size} •{" "}
-                              {file.createdAt?.toDate
-                                ? file.createdAt.toDate().toLocaleString()
-                                : ""}
-                            </p>
-                          </div>
-                          <Download className="w-4 h-4 text-gray-400" />
-                        </a>
-                      ))
-                    ) : (
-                      <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                        <p className="text-sm text-gray-400">
-                          Nenhum arquivo enviado ainda.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {activeTab === "comments" && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <div className="flex gap-4 mb-8">
-                    <div className="w-10 h-10 rounded-full bg-brand-green/10 flex items-center justify-center text-brand-green font-bold">
-                      {(user?.displayName || "A")[0]}
-                    </div>
-                    <div className="flex-1">
-                      <div className="relative group">
-                        <textarea
-                          className="w-full border border-gray-200 rounded-2xl p-4 text-sm focus:outline-none focus:ring-4 focus:ring-brand-green/10 focus:border-brand-green transition-all bg-white shadow-sm resize-none"
-                          placeholder="Tem alguma dúvida sobre esta aula? Pergunte aqui e a comunidade irá ajudar..."
-                          rows={3}
-                          value={newQuestion}
-                          onChange={(e) => setNewQuestion(e.target.value)}
-                        ></textarea>
-                        <div className="absolute bottom-3 right-3 flex items-center gap-2 opacity-0 group-focus-within:opacity-100 transition-opacity">
-                          <span className="text-[10px] text-gray-400 font-medium">
-                            Pressione Enter ↵ para enviar
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex justify-end mt-3">
-                        <button
-                          onClick={async () => {
-                            if (!newQuestion.trim() || !id || !user?.uid)
-                              return;
-                            try {
-                              await addDoc(collection(db, "questions"), {
-                                course_id: id,
-                                lesson_id: currentLessonId || null,
-                                user_uid: user.uid,
-                                user_name:
-                                  user.displayName ||
-                                  profile?.full_name ||
-                                  "Formando",
-                                instructor_uid:
-                                  course?.instructor_uid ||
-                                  course?.creator_uid ||
-                                  null,
-                                course_title: course?.title || "",
-                                lesson_title: current?.lesson?.title || "",
-                                text: newQuestion.trim(),
-                                status: "pending",
-                                createdAt: serverTimestamp(),
-                              });
-                              setNewQuestion("");
-                              showToast(
-                                "Sua dúvida foi enviada com sucesso!",
-                                "success",
-                              );
-                            } catch (e) {
-                              showToast(
-                                "Não foi possível enviar sua dúvida.",
-                                "error",
-                              );
-                            }
-                          }}
-                          className="bg-brand-green text-white px-6 py-2.5 rounded-full text-sm font-bold hover:bg-brand-dark transition-all shadow-lg hover:shadow-brand-green/20 active:scale-95 flex items-center gap-2"
-                        >
-                          Publicar Pergunta
-                          <Send className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {questions.length === 0 ? (
-                    <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                      <p className="text-sm text-gray-400">
-                        Nenhuma dúvida registrada ainda. Seja o primeiro a
-                        perguntar!
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-6">
-                      {(() => {
-                        // Separar questões da lição atual e outras
-                        const lessonQuestions = questions.filter(
-                          (q) => q.lesson_id === currentLessonId,
-                        );
-                        const otherQuestions = questions.filter(
-                          (q) => q.lesson_id !== currentLessonId,
-                        );
-
-                        return (
-                          <>
-                            {lessonQuestions.length > 0 && (
-                              <div className="space-y-4">
-                                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-brand-green"></span>
-                                  Nesta Aula
-                                </h4>
-                                {lessonQuestions.map((q: any) => (
-                                  <Comment
-                                    key={q.id}
-                                    author={q.user_name || "Formando"}
-                                    date={
-                                      q.createdAt?.toDate
-                                        ? q.createdAt.toDate().toLocaleString()
-                                        : ""
-                                    }
-                                    text={q.text}
-                                    replies={
-                                      q.repliesCount ||
-                                      answersByQ[q.id]?.length ||
-                                      0
-                                    }
-                                    onReplyClick={() => {
-                                      if (!openReplies[q.id])
-                                        toggleReplies(q.id);
-                                    }}
-                                    onRepliesClick={() => toggleReplies(q.id)}
-                                    isRepliesOpen={!!openReplies[q.id]}
-                                    replyValue={replyDraft[q.id] || ""}
-                                    onReplyChange={(v: string) =>
-                                      setReplyDraft((prev) => ({
-                                        ...prev,
-                                        [q.id]: v,
-                                      }))
-                                    }
-                                    onReplySubmit={() => sendReply(q)}
-                                    answersList={answersByQ[q.id] || []}
-                                  />
-                                ))}
-                              </div>
-                            )}
-
-                            {otherQuestions.length > 0 && (
-                              <div className="space-y-4 pt-4">
-                                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest">
-                                  Outras Dúvidas do Curso
-                                </h4>
-                                {otherQuestions.map((q: any) => (
-                                  <Comment
-                                    key={q.id}
-                                    author={q.user_name || "Formando"}
-                                    date={
-                                      q.createdAt?.toDate
-                                        ? q.createdAt.toDate().toLocaleString()
-                                        : ""
-                                    }
-                                    text={q.text}
-                                    replies={
-                                      q.repliesCount ||
-                                      answersByQ[q.id]?.length ||
-                                      0
-                                    }
-                                    onReplyClick={() => {
-                                      if (!openReplies[q.id])
-                                        toggleReplies(q.id);
-                                    }}
-                                    onRepliesClick={() => toggleReplies(q.id)}
-                                    isRepliesOpen={!!openReplies[q.id]}
-                                    replyValue={replyDraft[q.id] || ""}
-                                    onReplyChange={(v: string) =>
-                                      setReplyDraft((prev) => ({
-                                        ...prev,
-                                        [q.id]: v,
-                                      }))
-                                    }
-                                    onReplySubmit={() => sendReply(q)}
-                                    answersList={answersByQ[q.id] || []}
-                                    lessonTitle={q.lesson_title}
-                                  />
-                                ))}
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  )}
-                </div>
-              )}
               {activeTab === "interactive" && (
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
                   <InteractiveQuiz
@@ -2095,6 +1751,78 @@ const CoursePlayerPage: React.FC = () => {
                     completedList={completedExercises}
                     getDownloadUrl={getDownloadUrl}
                   />
+                </div>
+              )}
+              {activeTab === "feedback" && (
+                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <h4 className="text-lg font-bold">Minhas Expectativas</h4>
+                  <p className="whitespace-pre-wrap text-gray-700">
+                    {expectations || "Nenhuma expectativa registrada."}
+                  </p>
+                  {progressPercentage === 100 ? (
+                    finalReview ? (
+                      <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
+                        <p className="font-semibold">
+                          Você respondeu: {finalReview.met ? "Sim" : "Não"}
+                        </p>
+                        {finalReview.comments && (
+                          <p className="mt-2 text-gray-600">
+                            Comentários: {finalReview.comments}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <p className="text-gray-600">
+                          O curso está completo. As expectativas foram atendidas?
+                        </p>
+                        <div className="flex items-center gap-4">
+                          <button
+                            onClick={() => submitFinalReview(true)}
+                            className="px-4 py-2 rounded-lg bg-brand-green text-white hover:bg-brand-dark"
+                          >
+                            Sim
+                          </button>
+                          <button
+                            onClick={() => submitFinalReview(false)}
+                            className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600"
+                          >
+                            Não
+                          </button>
+                        </div>
+                        <textarea
+                          className="w-full border border-gray-300 rounded-lg p-3"
+                          rows={3}
+                          placeholder="Comentários (obrigatório)"
+                          value={finalReview?.comments || ""}
+                          onChange={(e) =>
+                            setFinalReview((prev) => ({
+                              met: prev?.met ?? false,
+                              comments: e.target.value,
+                            }))
+                          }
+                        />
+                        <div className="flex justify-end">
+                          <button
+                            disabled={!finalReview?.comments || finalReview.comments.trim() === ""}
+                            onClick={() =>
+                              submitFinalReview(
+                                finalReview?.met ?? false,
+                                finalReview?.comments,
+                              )
+                            }
+                            className="px-4 py-2 rounded-lg bg-brand-green text-white hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Enviar avaliação
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  ) : (
+                    <p className="text-gray-500">
+                      Complete o curso para avaliar as expectativas.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -2182,7 +1910,7 @@ const CoursePlayerPage: React.FC = () => {
                               </div>
                               <div>
                                 <p
-                                  className={`text-sm font-medium mb-1 ${isActive ? "text-brand-green" : "text-gray-700"}`}
+                                  className={`text-sm font-medium mb-1 ${isActive ? "text-brand-dark" : "text-gray-700"}`}
                                 >
                                   {lesson.title}
                                 </p>
@@ -2262,6 +1990,101 @@ const CoursePlayerPage: React.FC = () => {
             }`}
           >
             {toast.message}
+          </div>
+        )}
+
+        {/* Expectations Modal: shown at start of course */}
+        {showExpectationsModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl p-6 max-w-lg w-full">
+              <h3 className="text-lg font-bold mb-4">Antes de começar</h3>
+              <p className="text-sm text-gray-600 mb-2">
+                Quais são suas expectativas para este curso? Escreva algumas
+                frases para que possamos acompanhar mais tarde.
+              </p>
+              <textarea
+                className="w-full border border-gray-300 rounded-lg p-3 mb-4"
+                rows={4}
+                value={tempExpectations}
+                onChange={(e) => setTempExpectations(e.target.value)}
+              />
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowExpectationsModal(false)}
+                  className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={saveExpectations}
+                  className="px-4 py-2 rounded-lg bg-brand-green text-white hover:bg-brand-dark"
+                >
+                  Salvar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Final review modal shown when course is complete */}
+        {showFinalModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl p-6 max-w-lg w-full">
+              <h3 className="text-lg font-bold mb-4">Você cumpriu as expectativas?</h3>
+              <p className="text-sm text-gray-600 mb-2">
+                Agora que você finalizou o curso, conte-nos se o conteúdo atendeu
+                às suas expectativas.
+              </p>
+              <div className="flex items-center gap-4 mb-4">
+                <button
+                  onClick={() =>
+                    setFinalReview((prev) => ({
+                      met: true,
+                      comments: prev?.comments || "",
+                    }))
+                  }
+                  className="flex-1 px-4 py-2 rounded-lg bg-brand-green text-white hover:bg-brand-dark"
+                >
+                  Sim
+                </button>
+                <button
+                  onClick={() =>
+                    setFinalReview((prev) => ({
+                      met: false,
+                      comments: prev?.comments || "",
+                    }))
+                  }
+                  className="flex-1 px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600"
+                >
+                  Não
+                </button>
+              </div>
+              <textarea
+                className="w-full border border-gray-300 rounded-lg p-3 mb-4"
+                rows={3}
+                placeholder="Comentários adicionais (opcional)"
+                value={finalReview?.comments || ""}
+                onChange={(e) =>
+                  setFinalReview((prev) => ({
+                    met: prev?.met ?? false,
+                    comments: e.target.value,
+                  }))
+                }
+              />
+              <div className="flex justify-end">
+                <button
+                  onClick={() =>
+                    submitFinalReview(
+                      finalReview?.met ?? false,
+                      finalReview?.comments,
+                    )
+                  }
+                  className="px-4 py-2 rounded-lg bg-brand-green text-white hover:bg-brand-dark"
+                >
+                  Enviar avaliação
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
