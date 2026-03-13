@@ -22,6 +22,30 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
   const [systemVoices, setSystemVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [hasInteracted, setHasInteracted] = useState(false);
 
+  // Log what's being passed in
+  console.log("🎭 MascotReader mounted - content type:", typeof content, "length:", content?.length);
+  console.log("🎭 Content preview:", content?.substring?.(0, 100) || "EMPTY");
+
+  // Função para processar markdown simples (bold, itálico, etc)
+  const renderFormattedText = (text: string) => {
+    // Processar bold (**texto**)
+    const withBold = text.split(/\*\*(.*?)\*\*/).map((part, i) => 
+      i % 2 === 0 ? part : <strong key={i} className="font-black text-gray-900">{part}</strong>
+    );
+    
+    // Processar itálico (_texto_)
+    const withItalic = withBold.map((part, i) => {
+      if (typeof part === 'string') {
+        return part.split(/_(.*?)_/).map((subPart, j) =>
+          j % 2 === 0 ? subPart : <em key={`${i}-${j}`} className="italic">{subPart}</em>
+        );
+      }
+      return part;
+    });
+    
+    return withItalic;
+  };
+
   // Get system voices once available
   useEffect(() => {
     const handleVoicesChanged = () => {
@@ -36,56 +60,115 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
   // Parse content into slides and bullet points
   const slides = useMemo(() => {
     let raw = content.trim();
+    if (!raw) return [];
     
+    console.log("=== MascotReader Parsing ===");
+    console.log("Raw content:", raw.substring(0, 300));
+    
+    // Try JSON first
     try {
       const parsed = JSON.parse(raw);
+      console.log("✓ Parsed as JSON");
       const blocks = Array.isArray(parsed) ? parsed : (parsed.blocks || []);
+      console.log("Blocks:", blocks);
       
-      if (Array.isArray(blocks) && blocks.length > 0) {
-        const slideGroups: any[] = [];
-        let currentSlide: any = null;
-
-        blocks.forEach((block: any) => {
-          const type = block.type || 'p';
-          const val = block.value || block.text || block.content || block.url || "";
-          if (!val) return;
-
-          if (type === 'h1' || type === 'h2' || type === 'h3') {
-            if (currentSlide) slideGroups.push(currentSlide);
-            currentSlide = { title: val, points: [] };
-          } else if (type === 'image' || type === 'img') {
-             if (!currentSlide) currentSlide = { title: "Resumo da Aula", points: [] };
-             currentSlide.points.push({ type: 'image', url: val });
-          } else {
-            if (!currentSlide) currentSlide = { title: "Resumo da Aula", points: [] };
-            currentSlide.points.push(val);
-          }
-        });
-        if (currentSlide) slideGroups.push(currentSlide);
-        return slideGroups;
+      if (!Array.isArray(blocks) || blocks.length === 0) {
+        throw new Error("No blocks found");
       }
-    } catch (e) {}
 
+      const slideGroups: any[] = [];
+      let currentSlide: any = null;
+      let listCounter = 0;
+
+      blocks.forEach((block: any, blockIdx: number) => {
+        const type = (block?.type || 'p').toString().toLowerCase();
+        const val = block?.value || block?.text || block?.content || block?.url || "";
+        
+        console.log(`Block ${blockIdx}:`, { type, hasVal: !!val, val: val?.substring(0, 50) });
+
+        // Headings create new slides
+        if (type.startsWith('h')) {
+          if (currentSlide && currentSlide.points.length > 0) {
+            slideGroups.push(currentSlide);
+          }
+          currentSlide = { 
+            title: val || type.toUpperCase(), 
+            points: [] 
+          };
+          listCounter = 0;
+        } 
+        // Images
+        else if (type === 'image' || type === 'img') {
+          if (!currentSlide) currentSlide = { title: "Conteúdo", points: [] };
+          if (val) currentSlide.points.push({ type: 'image', url: val });
+        }
+        // Content blocks (paragraphs, lists, etc)
+        else if (val) {
+          if (!currentSlide) currentSlide = { title: "Conteúdo", points: [] };
+          
+          if (type === 'list') {
+            listCounter = 0;
+            currentSlide.points.push({ text: val, blockType: 'list' });
+          } else if (type === 'list-ordered') {
+            listCounter++;
+            currentSlide.points.push({ text: val, blockType: 'list-ordered', orderNum: listCounter });
+          } else {
+            listCounter = 0;
+            currentSlide.points.push({ text: val, blockType: type });
+          }
+        }
+      });
+
+      // Push last slide
+      if (currentSlide && currentSlide.points.length > 0) {
+        slideGroups.push(currentSlide);
+      }
+
+      console.log("Final slides:", slideGroups.length, slideGroups);
+      if (slideGroups.length > 0) return slideGroups;
+    } catch (e) {
+      console.log("JSON parsing failed:", e instanceof Error ? e.message : e);
+    }
+
+    // Fallback: treat as plain text with markdown-style formatting
+    console.log("Falling back to text parsing");
     const cleaned = raw.replace(/<a[^>]*>(.*?)<\/a>/gi, "").trim();
     const parts = cleaned.split(/(?:\r?\n){2,}/).filter(p => p.trim());
-    return parts.map(part => {
+    
+    const slides = parts.map(part => {
       const lines = part.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
       const title = lines[0].startsWith('#') ? lines[0].replace(/^#+\s*/, '') : null;
       const bodyLines = title ? lines.slice(1) : lines;
+      
       return {
-        title: title || (bodyLines.length > 1 ? "Pontos Importantes" : ""),
-        points: bodyLines.map(line => line.replace(/^[\s*-+>]+\s*/, '').replace(/^\d+\.\s*/, ''))
+        title: title || (bodyLines.length > 1 ? "Conteúdo" : ""),
+        points: bodyLines.map((line, idx) => ({
+          text: line.replace(/^[\s*\-+>]+\s*/, '').replace(/^\d+\.\s*/, ''),
+          blockType: line.match(/^\d+\./) ? 'list-ordered' : line.match(/^[\s*\-+>]/) ? 'list' : 'p',
+          orderNum: idx + 1
+        }))
       };
     });
+
+    console.log("Text fallback slides:", slides.length, slides);
+    return slides;
   }, [content]);
 
   const currentSlide: { title: string; points: (string | { type: string; url: string })[] } | undefined = slides[currentSlideIndex];
   const textToSpeak = useMemo(() => {
     if (!currentSlide) return "";
     const textPoints = currentSlide.points
-        .filter(p => typeof p === 'string')
-        .join(". ");
-    return `${currentSlide.title}. ${textPoints}`;
+      .map((p: any) => {
+        if (typeof p === "string") return p;
+        if (typeof p === "object" && p !== null && p.text) return p.text;
+        return "";
+      })
+      .filter((t) => typeof t === "string" && t.trim().length > 0)
+      .join(". ");
+    
+    // Concatena título e pontos, garantindo clareza na pontuação
+    const title = currentSlide.title ? `${currentSlide.title}. ` : "";
+    return `${title}${textPoints}`;
   }, [currentSlide]);
   const lastSpokenSlideRef = React.useRef<number>(-1);
   
@@ -217,17 +300,26 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
 
       {/* Content Side - Precise Typography & Scrollable */}
       <div className="flex-1 flex flex-col bg-white relative">
-        <div className="p-6 md:p-12 pb-2 md:pb-4">
-            {currentSlide.title && (
-                <h3 className="text-lg md:text-2xl font-black text-[#0c2d1c] mb-2 tracking-tight">
-                    {currentSlide.title}
-                </h3>
-            )}
-            <div className="h-1 w-12 md:w-16 bg-brand-green rounded-full" />
-        </div>
+        {!currentSlide ? (
+          <div className="flex-1 flex items-center justify-center p-8 text-center">
+            <div>
+              <p className="text-gray-500 font-medium mb-2">Conteúdo indisponível</p>
+              <p className="text-sm text-gray-400">Não foi possível carregar o conteúdo desta aula.</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="p-6 md:p-12 pb-2 md:pb-4">
+                {currentSlide.title && (
+                    <h3 className="text-lg md:text-2xl font-black text-[#0c2d1c] mb-2 tracking-tight">
+                        {currentSlide.title}
+                    </h3>
+                )}
+                <div className="h-1 w-12 md:w-16 bg-brand-green rounded-full" />
+            </div>
 
-        {/* SCROLLABLE AREA */}
-        <div className="flex-1 p-8 pt-0 overflow-y-auto custom-scrollbar-thin">
+            {/* SCROLLABLE AREA */}
+            <div className="flex-1 p-8 pt-0 overflow-y-auto custom-scrollbar-thin">
           <AnimatePresence mode="wait">
             <motion.div
               key={currentSlideIndex}
@@ -236,22 +328,38 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
               exit={{ opacity: 0, x: -10 }}
               className="space-y-4"
             >
-              {currentSlide.points.map((point: any, i: number) => {
+              {(() => {
+                console.log("🎭 Rendering slide", currentSlideIndex, "title:", currentSlide.title);
+                console.log("🎭 Points array:", currentSlide.points);
+                const pointsToRender = currentSlide.points;
+                console.log("🎭 Points to render count:", pointsToRender.length);
+                return pointsToRender.map((point: any, i: number) => {
                 const isImage = typeof point === 'object' && point.type === 'image';
+                const blockType = typeof point === 'object' ? point.blockType : 'p';
+                const orderNum = typeof point === 'object' ? point.orderNum : i + 1;
+                const pointText = typeof point === 'string' ? point : (point.text || '');
+                
+                console.log("🎭 Point", i, ":", { 
+                  blockType, 
+                  isImage, 
+                  pointText: pointText?.substring(0, 50),
+                  fullPoint: JSON.stringify(point).substring(0, 100)
+                });
+                
                 return (
                   <motion.div
                     key={i}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.1 }}
-                    className={`flex items-start gap-3 md:gap-4 ${isImage ? 'p-1 bg-white border border-gray-100' : 'p-4 md:p-5 bg-[#f9fafb] border border-gray-50'} rounded-xl md:rounded-2xl hover:border-brand-green/30 transition-all hover:shadow-md group`}
+                    className={`${
+                      isImage 
+                        ? 'p-1 bg-white border border-gray-100' 
+                        : `p-4 md:p-5 bg-[#f9fafb] border border-gray-50 ${
+                            blockType === 'list' || blockType === 'list-ordered' ? 'pl-12 md:pl-14' : ''
+                          }`
+                    } rounded-xl md:rounded-2xl hover:border-brand-green/30 transition-all hover:shadow-md group relative`}
                   >
-                    {!isImage && (
-                        <div className="mt-1 w-6 h-6 rounded-lg bg-white border border-gray-200 flex items-center justify-center flex-shrink-0 text-[10px] font-black text-brand-green shadow-sm group-hover:bg-brand-green group-hover:text-white transition-colors">
-                            {i + 1}
-                        </div>
-                    )}
-                    
                     {isImage ? (
                         <img 
                             src={point.url} 
@@ -260,13 +368,22 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
                             onError={(e) => { (e.target as any).src = 'https://placehold.co/400x300?text=Imagem+Nao+Encontrada'; }}
                         />
                     ) : (
-                        <p className="text-[13px] md:text-[15px] text-[#4a5568] leading-[1.6] md:leading-[1.7] font-medium tracking-tight">
-                            {point}
-                        </p>
+                        <>
+                          {blockType === 'list' && (
+                            <span className="absolute left-4 md:left-5 text-[#9ca3af] font-bold">•</span>
+                          )}
+                          {blockType === 'list-ordered' && (
+                            <span className="absolute left-4 md:left-5 text-[#9ca3af] font-medium text-sm">{orderNum}.</span>
+                          )}
+                          <p className="text-[13px] md:text-[15px] text-[#4a5568] leading-[1.6] md:leading-[1.7] font-medium tracking-tight whitespace-pre-wrap">
+                              {renderFormattedText(pointText)}
+                          </p>
+                        </>
                     )}
                   </motion.div>
                 );
-              })}
+              });
+              })()}
               {/* Extra space at bottom of scroll */}
               <div className="h-8" />
             </motion.div>
@@ -311,6 +428,8 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
                 </button>
             </div>
         </div>
+          </>
+        )}
       </div>
 
       <style dangerouslySetInnerHTML={{ __html: `
