@@ -731,14 +731,6 @@ const CourseEditorPage: React.FC = () => {
       showToast("Por favor, defina a duração do curso.", "error");
       return false;
     }
-    if (
-      !formData.certificatePrice ||
-      formData.certificatePrice.trim().length === 0 ||
-      parseFloat(formData.certificatePrice.replace(",", ".")) <= 0
-    ) {
-      showToast("Por favor, defina o preço do certificado.", "error");
-      return false;
-    }
     return true;
   };
 
@@ -1229,10 +1221,10 @@ const CourseEditorPage: React.FC = () => {
   const handleLessonFileUpload = async (
     moduleId: string,
     lessonId: string,
-    e: React.ChangeEvent<HTMLInputElement>,
+    fileOrEvent: React.ChangeEvent<HTMLInputElement> | File,
   ) => {
     try {
-      const file = e.target.files?.[0];
+      const file = "target" in fileOrEvent ? fileOrEvent.target.files?.[0] : fileOrEvent;
       if (!file) return;
       // Restringe formatos: PDF, DOCX, PPTX, XLS, XLSX
       const lower = file.name.toLowerCase();
@@ -1399,7 +1391,7 @@ const CourseEditorPage: React.FC = () => {
                   />
                 </InputGroup>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                <div className="grid grid-cols-1 gap-6 items-start">
                   <Select
                     className="w-full"
                     placeholder="Selecione uma categoria"
@@ -1423,31 +1415,6 @@ const CourseEditorPage: React.FC = () => {
                       </SelectListBox>
                     </SelectPopover>
                   </Select>
-
-                  <InputGroup
-                    label="Preço do Certificado (MZM)"
-                    help="Defina o valor do certificado (0 = gratuito)."
-                  >
-                    <div className="relative">
-                      <input
-                        type="number"
-                        value={formData.certificatePrice.replace(",", ".")}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            certificatePrice: e.target.value.replace(".", ","),
-                          })
-                        }
-                        placeholder="250"
-                        min="0"
-                        required
-                        className="w-full pl-4 pr-16 py-3 bg-[#262626] border border-gray-700 rounded-xl text-white placeholder-gray-600 focus:ring-2 focus:ring-brand-green/30 focus:border-brand-green outline-none"
-                      />
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-black text-gray-500 uppercase">
-                        MZM
-                      </div>
-                    </div>
-                  </InputGroup>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
@@ -2432,15 +2399,29 @@ const CourseEditorPage: React.FC = () => {
                           )}
 
                           {lesson.type === "document" && (
-                            <div className="flex flex-col gap-3">
-                              <div className="flex items-center gap-3 bg-white p-3 rounded-lg border border-gray-200">
-                                <div className="p-1.5 bg-gray-50 rounded-md">
-                                  <FileUp size={16} className="text-gray-400" />
+                            <div 
+                              className="flex flex-col gap-3"
+                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                                  handleLessonFileUpload(module.id, lesson.id, e.dataTransfer.files[0]);
+                                }
+                              }}
+                            >
+                              <div className="flex items-center gap-3 bg-white p-6 rounded-xl border-2 border-dashed border-gray-200 hover:border-brand-green/50 transition-colors">
+                                <div className="p-3 bg-brand-light/30 text-brand-green rounded-xl">
+                                  <FileUp size={24} />
                                 </div>
-                                <span className="text-xs text-gray-500 font-medium truncate flex-1">
-                                  {lesson.content ||
-                                    "Nenhum documento selecionado"}
-                                </span>
+                                <div className="flex-1 flex flex-col justify-center min-w-0">
+                                  <span className="text-sm text-slate-700 font-bold truncate">
+                                    {lesson.content && lesson.content.startsWith("http") ? "Documento anexado" : (lesson.content || "Arraste e solte o seu ficheiro aqui")}
+                                  </span>
+                                  <span className="text-xs text-slate-400 mt-1">
+                                    ou clique no botão ao lado para procurar no computador
+                                  </span>
+                                </div>
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -2449,9 +2430,9 @@ const CourseEditorPage: React.FC = () => {
                                     );
                                     input?.click();
                                   }}
-                                  className="text-[10px] font-black uppercase text-brand-green hover:underline"
+                                  className="px-4 py-2 bg-gray-50 hover:bg-brand-green hover:text-white text-slate-600 rounded-lg text-xs font-bold uppercase transition-all whitespace-nowrap"
                                 >
-                                  Selecionar Ficheiro
+                                  Selecionar
                                 </button>
                                 <input
                                   id={`file-upload-${lesson.id}`}

@@ -159,9 +159,10 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
     if (!currentSlide) return "";
     const textPoints = currentSlide.points
       .map((p: any) => {
-        if (typeof p === "string") return p;
-        if (typeof p === "object" && p !== null && p.text) return p.text;
-        return "";
+        let text = "";
+        if (typeof p === "string") text = p;
+        if (typeof p === "object" && p !== null && p.text) text = p.text;
+        return text.replace(/\*\*/g, "").replace(/_/g, "");
       })
       .filter((t) => typeof t === "string" && t.trim().length > 0)
       .join(". ");
