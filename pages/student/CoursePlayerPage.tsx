@@ -11,21 +11,23 @@ import {
     where
 } from "firebase/firestore";
 import {
-    Award,
-    CheckCircle,
-    ChevronDown,
-    ChevronLeft,
-    ChevronRight,
-    Circle,
-    Download,
-    FileText,
-    Lock,
-    Menu,
-    Play,
-    PlayCircle,
-    Send,
-    Upload,
-    X,
+  Award,
+  CheckCircle,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  Download,
+  File,
+  FileText,
+  Image,
+  Lock,
+  Menu,
+  Play,
+  PlayCircle,
+  Send,
+  Upload,
+  X,
 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -44,9 +46,6 @@ const CoursePlayerPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { user, profile } = useAuth();
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
-  const [activeTab, setActiveTab] = useState<
-    "overview" | "materials" | "interactive" | "feedback"
-  >("overview");
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [openModules, setOpenModules] = useState<string[]>([]);
   const [currentLessonId, setCurrentLessonId] = useState("");
@@ -357,8 +356,6 @@ const CoursePlayerPage: React.FC = () => {
                 completedAt: serverTimestamp(),
               });
             });
-            // Mudar para tab de overview após terminar tudo
-            setActiveTab("overview");
           } catch (err) {
             console.warn("Erro ao atualizar enrollment com conclusão:", err);
           }
@@ -383,6 +380,15 @@ const CoursePlayerPage: React.FC = () => {
         return next;
       });
       setExerciseResults((prev) => ({ ...prev, [exId]: true }));
+
+      // Se é exercício exibido como aula, também marcar como lição completa
+      if (current?.lesson?.isExercise) {
+        setCompletedLessons((prev) => {
+          const updated = new Set(prev);
+          updated.add(currentLessonId);
+          return updated;
+        });
+      }
 
       // Verificar se já existe para evitar duplicatas (opcional, mas bom ter)
       await addDoc(collection(db, "exercise-completions"), {
@@ -801,16 +807,34 @@ const CoursePlayerPage: React.FC = () => {
       : fallbackModules;
   }, [normalizedModules, fallbackModules]);
 
-  // Lista linear de aulas para navegação
+  // Lista linear de aulas para navegação (agora incluindo exercícios interativos)
   const allLessons = useMemo(() => {
     const out: any[] = [];
     displayModules.forEach((m: any, mi: number) => {
       (m?.lessons || []).forEach((l: any, li: number) => {
         out.push({ moduleIndex: mi, lessonIndex: li, module: m, lesson: l });
+        // Adicionar exercícios desta aula como "aulas" fictícias
+        const lessonExercises = (course?.interactiveExercises || []).filter(
+          (ex: any) => String(ex.lessonId || ex.lesson_id) === String(l.id)
+        );
+        lessonExercises.forEach((ex: any, ei: number) => {
+          out.push({
+            moduleIndex: mi,
+            lessonIndex: li,
+            module: m,
+            lesson: {
+              id: `ex-${ex.id}`,
+              title: ex.title || "Teste da Aula",
+              type: "interactive",
+              exerciseData: ex,
+              isExercise: true,
+            },
+          });
+        });
       });
     });
     return out;
-  }, [displayModules]);
+  }, [displayModules, course?.interactiveExercises]);
 
   // Atribuir aula padrão e abrir primeiro módulo
   useEffect(() => {
@@ -1350,6 +1374,44 @@ const CoursePlayerPage: React.FC = () => {
                 />
               </div>
             </div>
+          ) : current?.lesson?.type === "interactive" &&
+            current?.lesson?.exerciseData ? (
+            <div className="w-full bg-[#f8fafc] min-h-full">
+              <div className="max-w-4xl mx-auto px-3 md:px-6 py-4 md:py-8 pb-32 md:pb-8">
+                <div className="mb-6">
+                  <div className="bg-gradient-to-r from-brand-green/5 to-brand-green/10 border-l-4 border-brand-green rounded-xl p-6">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-10 h-10 rounded-full bg-brand-green/20 flex items-center justify-center">
+                        <CheckCircle className="w-6 h-6 text-brand-green" />
+                      </div>
+                      <h2 className="text-2xl font-black text-brand-green">Teste de Aprendizagem</h2>
+                    </div>
+                    <p className="text-sm text-gray-600 ml-13">Verifique seu conhecimento com este teste interativo sobre o conteúdo que acabou de aprender.</p>
+                  </div>
+                </div>
+                <InteractiveQuiz
+                  lesson={current?.lesson}
+                  course={course}
+                  isFullLesson={true}
+                  onExerciseStatusUpdate={(exId: string, ok: boolean, isFinal?: boolean) => {
+                    if (ok) {
+                      if (isFinal) {
+                        markExerciseAsComplete(exId);
+                      } else {
+                        setExerciseResults((prev) => ({ ...prev, [exId]: true }));
+                      }
+                    } else {
+                      setExerciseResults((prev) => ({ ...prev, [exId]: false }));
+                    }
+                  }}
+                  results={exerciseResults}
+                  showToast={showToast}
+                  completedList={completedExercises}
+                  getDownloadUrl={getDownloadUrl}
+                  singleExercise={current?.lesson?.exerciseData}
+                />
+              </div>
+            </div>
           ) : current?.lesson?.type === "document" &&
             current?.lesson?.content ? (
             <div className="w-full bg-slate-50">
@@ -1370,9 +1432,10 @@ const CoursePlayerPage: React.FC = () => {
                     <a
                       href={getDownloadUrl(current.lesson.content)}
                       download
-                      className="text-sm font-semibold px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50"
+                      className="flex items-center gap-2 text-white bg-brand-green hover:bg-brand-green/90 px-5 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-brand-green/20"
                     >
-                      ⬇ Baixar
+                      <Download className="w-5 h-5" />
+                      Baixar o documento
                     </a>
                   </div>
                 </div>
@@ -1382,23 +1445,25 @@ const CoursePlayerPage: React.FC = () => {
                     <div className="w-full h-[50vh] md:h-[70vh] border rounded-xl overflow-hidden shadow-sm bg-slate-50">
                       {viewer ? (
                         viewer.type === "image" ? (
-                          <div className="w-full h-full bg-slate-50 flex items-center justify-center">
-                            <img
-                              src={viewer.src}
-                              alt="Documento"
-                              className="max-w-full max-h-full object-contain"
-                              onError={() => {
-                                console.error(
-                                  "Erro ao carregar imagem:",
-                                  viewer.src,
-                                );
-                              }}
-                            />
+                          <div className="w-full h-full bg-slate-50 flex items-center justify-center text-center p-8">
+                            <div className="max-w-full max-h-full overflow-auto">
+                              <img
+                                src={viewer.src}
+                                alt="Documento"
+                                className="max-w-full h-auto object-contain mx-auto rounded-lg shadow-sm"
+                                onError={() => {
+                                  console.error(
+                                    "Erro ao carregar imagem:",
+                                    viewer.src,
+                                  );
+                                }}
+                              />
+                            </div>
                           </div>
                         ) : viewer.type === "pdf" ? (
                           <div className="w-full h-full bg-white">
                             <Worker
-                              workerUrl={`https://unpkg.com/pdfjs-dist@3.4.120/build/pdf.worker.min.js`}
+                              workerUrl={`https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js`}
                             >
                               <Viewer
                                 fileUrl={viewer.src}
@@ -1439,6 +1504,27 @@ const CoursePlayerPage: React.FC = () => {
                     </div>
                   );
                 })()}
+
+                {/* Supplementary Materials Message for Document Lessons */}
+                <div className="mt-8 p-6 bg-blue-50 border border-blue-200 rounded-xl">
+                  <div className="flex items-start gap-3">
+                    <Download className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-black text-blue-900 mb-2">Material de Apoio</h4>
+                      <p className="text-sm text-blue-800 mb-3">
+                        Clique no botão abaixo para descarregar o documento de apoio desta aula.
+                      </p>
+                      <a
+                        href={getDownloadUrl(current.lesson.content)}
+                        download
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <Download className="w-4 h-4" />
+                        Descarregar Material de Apoio
+                      </a>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           ) : current?.lesson?.type === "image" && current?.lesson?.content ? (
@@ -1505,28 +1591,14 @@ const CoursePlayerPage: React.FC = () => {
                     guardado e está pronto para o próximo desafio.
                   </p>
                   <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                    <button
-                      onClick={() => setActiveTab("overview")}
-                      className="w-full sm:w-auto px-8 py-3 bg-brand-green text-white font-black rounded-2xl shadow-xl shadow-brand-green/20 hover:scale-105 transition-all text-sm uppercase tracking-widest"
-                    >
-                      Ver Resumo do Curso
-                    </button>
-                    {progressPercentage === 100 && (
-                      <button
-                        onClick={() => {
-                          if (finalReview) setShowCertificateModal(true);
-                          else
-                            showToast(
-                              "Avalie as expectativas antes de emitir o certificado.",
-                              "error",
-                            );
-                        }}
-                        disabled={!finalReview}
-                        className="w-full sm:w-auto px-8 py-3 bg-amber-500 text-white font-black rounded-2xl shadow-xl shadow-amber-500/20 hover:scale-105 transition-all text-sm uppercase tracking-widest disabled:opacity-50 cursor-not-allowed"
-                      >
-                        Emitir Certificado
-                      </button>
-                    )}
+                      {progressPercentage === 100 && (
+                          <button
+                            onClick={() => setShowCertificateModal(true)}
+                            className="w-full sm:w-auto px-8 py-3 bg-amber-500 text-white font-black rounded-2xl shadow-xl shadow-amber-500/20 hover:scale-105 transition-all text-sm uppercase tracking-widest"
+                          >
+                            Emitir Certificado
+                          </button>
+                      )}
                   </div>
                 </div>
               )}
@@ -1535,19 +1607,8 @@ const CoursePlayerPage: React.FC = () => {
 
           {/* Controls & Tabs */}
           <div className="max-w-5xl mx-auto p-6 md:p-8">
-            {/* Lesson Navigation */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 pb-8 border-b border-gray-200">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-1">
-                  {current?.lesson?.title || "Aula"}
-                </h2>
-                <p className="text-gray-500 text-sm">
-                  {current
-                    ? `Módulo ${current.moduleIndex + 1} • Aula ${current.lessonIndex + 1}`
-                    : ""}
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
+            {/* Lesson Navigation - Buttons Only */}
+            <div className="flex items-center justify-end gap-3 mb-8 pb-8 border-b border-gray-200">
                 <button
                   onClick={goPrev}
                   className="px-4 py-2 text-sm font-semibold text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
@@ -1574,302 +1635,151 @@ const CoursePlayerPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Tabs Navigation */}
-            <div className="flex items-center gap-3 md:gap-6 border-b border-gray-200 mb-6 overflow-x-auto whitespace-nowrap scrollbar-hide">
-              <TabButton
-                active={activeTab === "overview"}
-                onClick={() => setActiveTab("overview")}
-                label="Visão Geral"
-              />
-              <TabButton
-                active={activeTab === "materials"}
-                onClick={() => setActiveTab("materials")}
-                label="Materiais Complementares"
-              />
-              <TabButton
-                active={activeTab === "interactive"}
-                onClick={() => setActiveTab("interactive")}
-                label="Exercícios Interativos"
-              />
-              <TabButton
-                active={activeTab === "feedback"}
-                onClick={() => setActiveTab("feedback")}
-                label="Feedback"
-              />
-            </div>
+          {/* Supplementary Materials Section */}
+          {(() => {
+            const materials: any[] = [];
 
-            {/* Tab Content */}
-            <div className="min-h-[400px]">
-              {activeTab === "overview" && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <div className="prose text-gray-600 max-w-none">
-                    {(() => {
-                      const l: any = current?.lesson || {};
-                      const desc = (l.overview ??
-                        l.description ??
-                        l.descricao ??
-                        l.resumo ??
-                        l.summary ??
-                        l.cardDescription ??
-                        l.fullDescription ??
-                        course?.fullDescription ??
-                        course?.cardDescription ??
-                        "") as string;
-                      const c = String(desc || "");
-                      if (!c)
-                        return (
-                          <p className="text-gray-400">
-                            Sem descrição para esta aula.
-                          </p>
-                        );
-                      const isHtml = /<[^>]+>/.test(c);
+            // Coletar materiais do lesson
+            if (current?.lesson) {
+              const lesson = current.lesson;
+              console.log("[CoursePlayer] Lesson data:", lesson);
+              const lessonMaterials = lesson.materials || lesson.materiais || lesson.attachments || lesson.anexos || [];
+              if (Array.isArray(lessonMaterials)) {
+                console.log("[CoursePlayer] Found lesson materials:", lessonMaterials.length);
+                materials.push(...lessonMaterials);
+              }
+            }
 
-                      if (isHtml)
-                        return (
-                          <div
-                            className="prose max-w-none"
-                            dangerouslySetInnerHTML={{ __html: c }}
-                          />
-                        );
-                      return <div className="whitespace-pre-wrap">{c}</div>;
-                    })()}
-                  </div>
+            // Coletar do course level também
+            if (course) {
+              console.log("[CoursePlayer] Course data keys:", Object.keys(course));
+              console.log("[CoursePlayer] Course full data:", course);
+              const courseMaterials = course.materials || course.materiais || course.supplementary_materials || course.materiaisComplementares || [];
+              if (Array.isArray(courseMaterials) && courseMaterials.length > 0) {
+                console.log("[CoursePlayer] Found course materials:", courseMaterials.length);
+                materials.push(...courseMaterials);
+              }
+            }
 
-                  <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-white p-2 rounded-full text-brand-green shadow-sm">
-                        <CheckCircle className="w-5 h-5" />
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="font-bold text-brand-dark">
-                          Status da Aula
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          {completedLessons.has(current?.lesson?.id || "")
-                            ? "Parabéns! Você já concluiu esta aula."
-                            : "Você ainda não marcou esta aula como concluída."}
-                        </span>
-                      </div>
-                    </div>
-                    {completedLessons.has(current?.lesson?.id || "") && (
-                      <span className="text-xs font-black text-brand-green bg-green-100 px-3 py-1 rounded-full uppercase tracking-tighter">
-                        ✓ Aula Concluída
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {activeTab === "materials" && (
-                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  {(() => {
-                    const lesson = current?.lesson || {};
-                    const courseLevel = course || {};
-
-                    // 1. Extrair materiais definidos na lição ou curso
-                    let mats = [
-                      ...((lesson.materials ??
-                        lesson.materiais ??
-                        lesson.attachments ??
-                        lesson.anexos ??
-                        courseLevel.materials ??
-                        courseLevel.materiais ??
-                        []) as any[]),
-                    ];
-
-                    // 2. Extrair materiais dos blocos de conteúdo nativo (se for texto)
-                    if (lesson.type === "text" && lesson.content) {
-                      try {
-                        const blocks = JSON.parse(lesson.content);
-                        if (Array.isArray(blocks)) {
-                          const fileBlocks = blocks
-                            .filter((b: any) => b.type === "file" && b.value)
-                            .map((b: any) => ({
-                              title: b.fileName || "Ficheiro da Aula",
-                              url: b.value,
-                              type: (
-                                b.value.split(".").pop() || "FILE"
-                              ).toUpperCase(),
-                            }));
-                          mats = [...mats, ...fileBlocks];
-                        }
-                      } catch (e) {}
-                    }
-
-                    // 3. Adicionar o próprio conteúdo se a lição for do tipo 'document'
-                    if (lesson.type === "document" && lesson.content) {
-                      mats.push({
-                        title: lesson.title || "Documento da Aula",
-                        url: lesson.content,
-                        type: (
-                          lesson.content.split(".").pop() || "PDF"
-                        ).toUpperCase(),
+            // Se for texto com JSON, extrair arquivos
+            if (current?.lesson?.type === "text" && current?.lesson?.content) {
+              try {
+                const parsed = JSON.parse(current.lesson.content);
+                if (Array.isArray(parsed)) {
+                  parsed.forEach((item: any) => {
+                    if (item.type === "file" && item.value) {
+                      materials.push({
+                        title: item.fileName || "Arquivo",
+                        url: item.value,
                       });
                     }
+                  });
+                }
+              } catch (e) {}
+            }
 
-                    if (mats.length === 0) {
-                      return (
-                        <div className="text-sm text-gray-400 py-10 text-center bg-gray-50 rounded-2xl border border-dashed border-gray-200">
-                          Sem materiais complementares para esta aula.
-                        </div>
-                      );
+            // Se for documento, inclua como material
+            if (current?.lesson?.type === "document" && current?.lesson?.content) {
+              materials.push({
+                title: current.lesson.title || "Documento da Aula",
+                url: current.lesson.content,
+                type: "pdf",
+              });
+            }
+
+            // Deduplicate by URL
+            const uniqueMaterials = materials.filter((m, index, self) =>
+              index === self.findIndex(t => (t.url || t.link || t.href) === (m.url || m.link || m.href))
+            );
+
+            console.log("[CoursePlayer] Total materials found:", uniqueMaterials.length);
+
+            if (uniqueMaterials.length === 0) {
+              console.log("[CoursePlayer] No supplementary materials to display");
+              return null;
+            }
+
+            return (
+              <div className="max-w-5xl mx-auto px-6 md:px-8 py-8 border-t border-gray-200 mt-4">
+                <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-brand-green" />
+                  Materiais Complementares
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                  {uniqueMaterials.map((material: any, idx: number) => {
+                    const url = material.url || material.link || material.href || "";
+                    const title = material.title || material.name || material.titulo || `Material ${idx + 1}`;
+                    const tipo = material.type || material.tipo || "";
+
+                    // Determine file type icon
+                    let Icon = Download;
+                    let bgClass = "bg-gray-50";
+                    if (url.toLowerCase().includes(".pdf")) {
+                      Icon = FileText;
+                      bgClass = "bg-red-50";
+                    } else if (
+                      url.toLowerCase().includes(".doc") ||
+                      url.toLowerCase().includes(".docx") ||
+                      url.toLowerCase().includes(".txt")
+                    ) {
+                      Icon = FileText;
+                      bgClass = "bg-blue-50";
+                    } else if (
+                      url.toLowerCase().includes(".xls") ||
+                      url.toLowerCase().includes(".xlsx")
+                    ) {
+                      Icon = FileText;
+                      bgClass = "bg-green-50";
+                    } else if (
+                      url.toLowerCase().includes(".jpg") ||
+                      url.toLowerCase().includes(".png") ||
+                      url.toLowerCase().includes(".gif")
+                    ) {
+                      Icon = Image;
+                      bgClass = "bg-purple-50";
+                    } else if (
+                      url.toLowerCase().includes(".zip") ||
+                      url.toLowerCase().includes(".rar")
+                    ) {
+                      Icon = Download;
+                      bgClass = "bg-yellow-50";
                     }
 
-                    // Remover duplicatas por URL
-                    const uniqueMats = mats.filter(
-                      (v, i, a) => a.findIndex((t) => t.url === v.url) === i,
+                    return (
+                      <a
+                        key={idx}
+                        href={getDownloadUrl(url)}
+                        download
+                        className={`${bgClass} border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all group cursor-pointer`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="p-2.5 rounded-lg bg-white group-hover:bg-brand-green/10 transition-colors">
+                            <Icon className="w-5 h-5 text-brand-green" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm text-gray-900 truncate group-hover:text-brand-green transition-colors">
+                              {title}
+                            </p>
+                            {tipo && (
+                              <p className="text-xs text-gray-500 mt-0.5">
+                                {tipo}
+                              </p>
+                            )}
+                            {material.size && (
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                {material.size}
+                              </p>
+                            )}
+                          </div>
+                          <Download className="w-4 h-4 text-gray-400 group-hover:text-brand-green transition-colors flex-shrink-0 mt-0.5" />
+                        </div>
+                      </a>
                     );
-
-                    return uniqueMats.map((m: any, idx: number) => {
-                      const title =
-                        m?.title ??
-                        m?.name ??
-                        m?.titulo ??
-                        `Material ${idx + 1}`;
-                      const type =
-                        m?.type ??
-                        m?.tipo ??
-                        (m?.url?.split(".").pop()?.toUpperCase() || "ARQUIVO");
-                      const size = m?.size ?? m?.tamanho ?? "";
-                      const url = m?.url ?? m?.link ?? m?.href ?? "";
-                      const ext = (url || "").toLowerCase();
-                      const icon = ext.includes(".pdf") ? (
-                        <FileText className="w-5 h-5 text-red-500" />
-                      ) : (
-                        <Download className="w-5 h-5 text-blue-500" />
-                      );
-                      return (
-                        <a
-                          key={idx}
-                          href={url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block"
-                        >
-                          <MaterialCard
-                            title={title}
-                            type={type}
-                            size={size}
-                            icon={icon}
-                          />
-                        </a>
-                      );
-                    });
-                  })()}
+                  })}
                 </div>
-              )}
-
-              {activeTab === "interactive" && (
-                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <InteractiveQuiz
-                    lesson={current?.lesson}
-                    course={course}
-                    onExerciseStatusUpdate={(
-                      exId: string,
-                      ok: boolean,
-                      isFinal?: boolean,
-                    ) => {
-                      if (ok) {
-                        if (isFinal) {
-                          markExerciseAsComplete(exId);
-                        } else {
-                          setExerciseResults((prev) => ({
-                            ...prev,
-                            [exId]: true,
-                          }));
-                        }
-                      } else {
-                        setExerciseResults((prev) => ({
-                          ...prev,
-                          [exId]: false,
-                        }));
-                      }
-                    }}
-                    results={exerciseResults}
-                    showToast={showToast}
-                    completedList={completedExercises}
-                    getDownloadUrl={getDownloadUrl}
-                  />
-                </div>
-              )}
-              {activeTab === "feedback" && (
-                <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                  <h4 className="text-lg font-bold">Minhas Expectativas</h4>
-                  <p className="whitespace-pre-wrap text-gray-700">
-                    {expectations || "Nenhuma expectativa registrada."}
-                  </p>
-                  {progressPercentage === 100 ? (
-                    finalReview ? (
-                      <div className="bg-green-50 border border-green-200 p-4 rounded-lg">
-                        <p className="font-semibold">
-                          Você respondeu: {finalReview.met ? "Sim" : "Não"}
-                        </p>
-                        {finalReview.comments && (
-                          <p className="mt-2 text-gray-600">
-                            Comentários: {finalReview.comments}
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <p className="text-gray-600">
-                          O curso está completo. As expectativas foram
-                          atendidas?
-                        </p>
-                        <div className="flex items-center gap-4">
-                          <button
-                            onClick={() => submitFinalReview(true)}
-                            className="px-4 py-2 rounded-lg bg-brand-green text-white hover:bg-brand-dark"
-                          >
-                            Sim
-                          </button>
-                          <button
-                            onClick={() => submitFinalReview(false)}
-                            className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600"
-                          >
-                            Não
-                          </button>
-                        </div>
-                        <textarea
-                          className="w-full border border-gray-300 rounded-lg p-3"
-                          rows={3}
-                          placeholder="Comentários (obrigatório)"
-                          value={finalReview?.comments || ""}
-                          onChange={(e) =>
-                            setFinalReview((prev) => ({
-                              met: prev?.met ?? false,
-                              comments: e.target.value,
-                            }))
-                          }
-                        />
-                        <div className="flex justify-end">
-                          <button
-                            disabled={
-                              !finalReview?.comments ||
-                              finalReview.comments.trim() === ""
-                            }
-                            onClick={() =>
-                              submitFinalReview(
-                                finalReview?.met ?? false,
-                                finalReview?.comments,
-                              )
-                            }
-                            className="px-4 py-2 rounded-lg bg-brand-green text-white hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            Enviar avaliação
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  ) : (
-                    <p className="text-gray-500">
-                      Complete o curso para avaliar as expectativas.
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
+              </div>
+            );
+          })()}
         </main>
 
         {/* Right: Sidebar / Playlist */}
@@ -1962,7 +1872,9 @@ const CoursePlayerPage: React.FC = () => {
                                     ? "Vídeo"
                                     : lesson.type === "text"
                                       ? "Texto"
-                                      : "Documento"}
+                                      : lesson.type === "interactive"
+                                        ? "🧪 Teste"
+                                        : "Documento"}
                                   {lesson.duration
                                     ? ` • ${lesson.duration}`
                                     : ""}
@@ -2167,8 +2079,14 @@ const InteractiveQuiz = ({
   showToast,
   completedList,
   getDownloadUrl,
+  singleExercise,
+  isFullLesson,
 }: any) => {
   const list = useMemo(() => {
+    // Se é um exercício único (como aula), retorna apenas esse
+    if (singleExercise) {
+      return [singleExercise];
+    }
     const all = Array.isArray(course?.interactiveExercises)
       ? course.interactiveExercises
       : [];
@@ -2178,7 +2096,7 @@ const InteractiveQuiz = ({
       (ex: any) =>
         String(ex.lessonId || ex.lesson_id || "") === currentLessonId,
     );
-  }, [course, lesson]);
+  }, [course, lesson, singleExercise]);
 
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [checked, setChecked] = useState<Record<string, boolean>>(
