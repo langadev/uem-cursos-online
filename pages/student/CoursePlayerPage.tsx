@@ -1,16 +1,14 @@
 import {
-  addDoc,
-  collection,
-  doc,
-  getDocs,
-  increment,
-  onSnapshot,
-  orderBy,
-  limit as qbLimit,
-  query,
-  serverTimestamp,
-  updateDoc,
-  where,
+    addDoc,
+    collection,
+    doc,
+    getDocs,
+    onSnapshot,
+    limit as qbLimit,
+    query,
+    serverTimestamp,
+    updateDoc,
+    where
 } from "firebase/firestore";
 import {
   Award,
@@ -31,13 +29,12 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import CertificatePaymentModal from "../../components/CertificatePaymentModal";
 import MascotReader from "../../components/MascotReader";
 import { useAuth } from "../../contexts/AuthContext";
 import { db } from "../../services/firebase";
-import { isSupabaseConfigured, supabase } from "../../services/supabase";
 
 // PDF Viewer Imports
 import { Viewer, Worker } from "@react-pdf-viewer/core";
@@ -52,24 +49,27 @@ const CoursePlayerPage: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [openModules, setOpenModules] = useState<string[]>([]);
   const [currentLessonId, setCurrentLessonId] = useState("");
-  const [uploadedFiles, setUploadedFiles] = useState<any[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [course, setCourse] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [isFinishingLesson, setIsFinishingLesson] = useState(false);
   const [isEnrolled, setIsEnrolled] = useState(false);
+  const [enrollmentLoaded, setEnrollmentLoaded] = useState(false);
   const [lastLessonIdFromDb, setLastLessonIdFromDb] = useState("");
   const [isInitialLessonSet, setIsInitialLessonSet] = useState(false);
   const [fallbackModules, setFallbackModules] = useState<any[]>([]);
-  const [questions, setQuestions] = useState<any[]>([]);
-  const [newQuestion, setNewQuestion] = useState("");
-  const [answersByQ, setAnswersByQ] = useState<Record<string, any[]>>({});
-  const [openReplies, setOpenReplies] = useState<Record<string, boolean>>({});
-  const [replyDraft, setReplyDraft] = useState<Record<string, string>>({});
-  const answersSubsRef = useRef<Record<string, () => void>>({});
   const [completedLessons, setCompletedLessons] = useState<Set<string>>(
     new Set(),
   );
+
+  // expectations flow
+  const [expectations, setExpectations] = useState<string>("");
+  const [showExpectationsModal, setShowExpectationsModal] = useState(false);
+  const [tempExpectations, setTempExpectations] = useState("");
+  const [finalReview, setFinalReview] = useState<{
+    met: boolean;
+    comments?: string;
+  } | null>(null);
+  const [showFinalModal, setShowFinalModal] = useState(false);
   const [toast, setToast] = useState<{
     message: string;
     type: "success" | "error";
@@ -100,20 +100,61 @@ const CoursePlayerPage: React.FC = () => {
     setTimeout(() => setToast(null), 3500);
   };
 
+  // Guarda expectativas no enrollment e estado local
+  const saveExpectations = async () => {
+    if (!id || !user?.uid) return;
+    try {
+      const q = query(
+        collection(db, "enrollments"),
+        where("course_id", "==", id),
+        where("user_uid", "==", user.uid),
+      );
+      const snap = await getDocs(q);
+      snap.forEach(async (d) => {
+        await updateDoc(d.ref, { expectations: tempExpectations });
+      });
+      setExpectations(tempExpectations);
+      setShowExpectationsModal(false);
+      showToast("Expectativas salvas!", "success");
+    } catch (e) {
+      console.error("Erro ao salvar expectativas:", e);
+      showToast("Não foi possível salvar expectativas.", "error");
+    }
+  };
+
+  // Submete avaliação final das expectativas
+  const submitFinalReview = async (met: boolean, comments?: string) => {
+    if (!id || !user?.uid) return;
+    try {
+      const q = query(
+        collection(db, "enrollments"),
+        where("course_id", "==", id),
+        where("user_uid", "==", user.uid),
+      );
+      const snap = await getDocs(q);
+      snap.forEach(async (d) => {
+        await updateDoc(d.ref, {
+          final_review_met: met,
+          final_review_comments: comments || "",
+        });
+      });
+      setFinalReview({ met, comments });
+      setShowFinalModal(false);
+      showToast("Obrigado pelo seu feedback!", "success");
+    } catch (e) {
+      console.error("Erro ao salvar avaliação final:", e);
+      showToast("Não foi possível enviar sua avaliação.", "error");
+    }
+  };
+
   // Controlar leitura de texto (text-to-speech)
   // legacy reading functionality removed; see MascotReader component instead.
 
   // timer-based gating removed; lessons are now marked complete when the mascot reader finishes (handled below)
 
-  // Cleanup de subscriptions de respostas ao desmontar
+  // Cleanup ao desmontar (cancelar leitura de voz)
   useEffect(() => {
     return () => {
-      Object.values(answersSubsRef.current || {}).forEach((u) => {
-        try {
-          if (typeof u === "function") u();
-        } catch {}
-      });
-      answersSubsRef.current = {};
       // Parar leitura ao desmontar
       window.speechSynthesis.cancel();
     };
@@ -216,65 +257,6 @@ const CoursePlayerPage: React.FC = () => {
     }
   };
 
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    try {
-      const file = e.target.files?.[0];
-      if (!file || !id || !user?.uid) return;
-
-      // Sanitizar nome do arquivo - remover caracteres especiais
-      const sanitizedFileName = file.name
-        .normalize("NFD") // Decompor caracteres acentuados
-        .replace(/[\u0300-\u036f]/g, "") // Remover diacríticos
-        .replace(/[^a-zA-Z0-9._-]/g, "_") // Substituir caracteres especiais por underscore
-        .replace(/_{2,}/g, "_"); // Remover underscores múltiplos
-
-      const filePath = `submissions/${id}/${user.uid}/${Date.now()}_${sanitizedFileName}`;
-      let publicUrl = "";
-      if (isSupabaseConfigured) {
-        const { error: upErr } = await supabase.storage
-          .from("course-files")
-          .upload(filePath, file, {
-            upsert: true,
-            contentType: file.type || "application/octet-stream",
-          });
-        if (upErr) throw upErr;
-        publicUrl =
-          supabase.storage.from("course-files").getPublicUrl(filePath).data
-            .publicUrl || "";
-      } else {
-        alert("Upload indisponível: Supabase não configurado.");
-        return;
-      }
-      const sizeMb = (file.size / (1024 * 1024)).toFixed(1) + " MB";
-      await addDoc(collection(db, "submissions"), {
-        course_id: id,
-        lesson_id: currentLessonId || null,
-        user_uid: user.uid,
-        user_name: user.displayName || "Formando",
-        instructor_uid: course?.instructor_uid || course?.creator_uid || null,
-        course_title: course?.title || "",
-        lesson_title: current?.lesson?.title || "",
-        fileName: file.name,
-        fileType: file.type || "",
-        size: sizeMb,
-        url: publicUrl,
-        createdAt: serverTimestamp(),
-      });
-      e.target.value = "";
-    } catch (err) {
-      console.error("Falha no upload do exercício:", err);
-      alert("Não foi possível enviar seu exercício. Tente novamente.");
-    }
-  };
-
-  const removeFile = (fileId: string) => {
-    setUploadedFiles(uploadedFiles.filter((f) => f.id !== fileId));
-  };
-
   // Carregar curso e acompanhar em tempo real
   useEffect(() => {
     if (!id) return;
@@ -292,60 +274,17 @@ const CoursePlayerPage: React.FC = () => {
   }, [id]);
 
   // Replies helpers
-  const ensureAnswersSub = (qid: string) => {
-    if (answersSubsRef.current[qid]) return;
-    try {
-      const q = query(
-        collection(db, "questions", qid, "answers"),
-        orderBy("createdAt", "asc"),
-      );
-      const unsub = onSnapshot(q, (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setAnswersByQ((prev) => ({ ...prev, [qid]: list }));
-      });
-      answersSubsRef.current[qid] = unsub;
-    } catch {}
-  };
-  const toggleReplies = (qid: string) => {
-    setOpenReplies((prev) => {
-      const open = !prev[qid];
-      if (open) ensureAnswersSub(qid);
-      else {
-        const u = answersSubsRef.current[qid];
-        if (u) {
-          u();
-          delete answersSubsRef.current[qid];
-        }
-      }
-      return { ...prev, [qid]: open };
-    });
-  };
-  const sendReply = async (q: any) => {
-    const txt = (replyDraft[q.id] || "").trim();
-    if (!txt || !user?.uid) return;
-    try {
-      await addDoc(collection(db, "questions", q.id, "answers"), {
-        text: txt,
-        author_uid: user.uid,
-        author_name: user.displayName || profile?.full_name || "Estudante",
-        author_role: "student",
-        createdAt: serverTimestamp(),
-      });
-      await updateDoc(doc(db, "questions", q.id), {
-        repliesCount: increment(1),
-        lastActivity: serverTimestamp(),
-      });
-      setReplyDraft((prev) => ({ ...prev, [q.id]: "" }));
-      setOpenReplies((prev) => ({ ...prev, [q.id]: true }));
-      ensureAnswersSub(q.id);
-      showToast("Resposta enviada!", "success");
-    } catch {
-      showToast("Erro ao enviar resposta.", "error");
-    }
-  };
 
   // Marcar aula como concluída
   const markLessonAsComplete = async () => {
+    if (!expectations) {
+      setShowExpectationsModal(true);
+      showToast(
+        "Por favor, registre suas expectativas antes de concluir a aula.",
+        "error",
+      );
+      return;
+    }
     if (isFinishingLesson) return;
     if (!user?.uid || !id || !current?.lesson?.id) {
       showToast("Erro ao marcar aula como concluída.", "error");
@@ -357,7 +296,7 @@ const CoursePlayerPage: React.FC = () => {
 
     try {
       setIsFinishingLesson(true);
-      
+
       // Adicionar registro de conclusão no Firebase
       await addDoc(collection(db, "lesson-completions"), {
         course_id: id,
@@ -381,7 +320,7 @@ const CoursePlayerPage: React.FC = () => {
       const idx = allLessons.findIndex(
         (x) => x.lesson.id === completedLessonId,
       );
-      
+
       if (idx >= 0 && idx < allLessons.length - 1) {
         setCurrentLessonId(allLessons[idx + 1].lesson.id);
         showToast(
@@ -401,7 +340,7 @@ const CoursePlayerPage: React.FC = () => {
         const newProgress = Math.round(
           (newCompleted.size / allLessons.length) * 100,
         );
-        
+
         if (newProgress === 100) {
           try {
             const enrollmentQ = query(
@@ -468,6 +407,7 @@ const CoursePlayerPage: React.FC = () => {
     const checkEnrollment = async () => {
       if (!user?.uid || !id) {
         setIsEnrolled(false);
+        setEnrollmentLoaded(true);
         return;
       }
       try {
@@ -479,17 +419,32 @@ const CoursePlayerPage: React.FC = () => {
         );
         const r = await getDocs(q);
         if (!r.empty) {
-            setIsEnrolled(true);
-            const data = r.docs[0].data();
-            if (data.last_lesson_id) {
-                setLastLessonIdFromDb(data.last_lesson_id);
-            }
+          setIsEnrolled(true);
+          const data = r.docs[0].data();
+          if (data.last_lesson_id) {
+            setLastLessonIdFromDb(data.last_lesson_id);
+          }
+          // load expectations and final review so modal doesn't reappear
+          if (data.expectations) {
+            setExpectations(data.expectations);
+          }
+          if (
+            data.final_review_met !== undefined ||
+            data.final_review_comments !== undefined
+          ) {
+            setFinalReview({
+              met: !!data.final_review_met,
+              comments: data.final_review_comments || "",
+            });
+          }
         } else {
-            setIsEnrolled(false);
+          setIsEnrolled(false);
         }
       } catch {
         setIsEnrolled(false);
       }
+      // mark that enrollment info has been fetched regardless of success
+      setEnrollmentLoaded(true);
     };
     checkEnrollment();
   }, [user?.uid, id]);
@@ -545,86 +500,6 @@ const CoursePlayerPage: React.FC = () => {
     } catch {
       setCompletedLessons(new Set());
       setCompletedExercises(new Set());
-    }
-  }, [id, user?.uid]);
-
-  // Carregar dúvidas (questions) em tempo real para o curso atual
-  useEffect(() => {
-    if (!id) return;
-
-    let unsub: (() => void) | null = null;
-
-    const startQuery = (useOrderBy: boolean) => {
-      const q = useOrderBy
-        ? query(
-            collection(db, "questions"),
-            where("course_id", "==", id),
-            orderBy("createdAt", "desc"),
-          )
-        : query(collection(db, "questions"), where("course_id", "==", id));
-
-      return onSnapshot(
-        q,
-        (snap) => {
-          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-          setQuestions(list);
-        },
-        (err) => {
-          console.error("Erro na consulta de questões:", err);
-          if (useOrderBy) {
-            console.log(
-              "Tentando consulta sem orderBy (provável falta de índice)...",
-            );
-            if (unsub) unsub();
-            unsub = startQuery(false);
-          }
-        },
-      );
-    };
-
-    unsub = startQuery(true);
-    return () => {
-      if (unsub) unsub();
-    };
-  }, [id]);
-
-  // Carregar submissões do aluno para este curso
-  useEffect(() => {
-    if (!id || !user?.uid) {
-      setUploadedFiles([]);
-      return;
-    }
-    try {
-      const startSubmissionsQuery = (useOrderBy: boolean) => {
-        const q = useOrderBy 
-          ? query(
-              collection(db, "submissions"),
-              where("course_id", "==", id),
-              where("user_uid", "==", user.uid),
-              orderBy("createdAt", "desc"),
-            )
-          : query(
-              collection(db, "submissions"),
-              where("course_id", "==", id),
-              where("user_uid", "==", user.uid),
-            );
-
-        return onSnapshot(q, (snap) => {
-          const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-          setUploadedFiles(list);
-        }, (err) => {
-          console.error("Erro na consulta de submissões:", err);
-          if (useOrderBy) {
-            console.log("Tentando consulta de submissões sem orderBy...");
-            unsub = startSubmissionsQuery(false);
-          }
-        });
-      };
-
-      let unsub = startSubmissionsQuery(true);
-      return () => unsub();
-    } catch (err) {
-      console.error("Erro ao configurar listener de submissões:", err);
     }
   }, [id, user?.uid]);
 
@@ -687,60 +562,60 @@ const CoursePlayerPage: React.FC = () => {
             lowerUrl.endsWith(".xls") ||
             lowerUrl.endsWith(".xlsx") ||
             lowerUrl.includes("drive.google.com"));
-          const isImageUrl =
-            typeof urlCandidate === "string" &&
-            (lowerUrl.endsWith(".jpg") ||
-              lowerUrl.endsWith(".jpeg") ||
-              lowerUrl.endsWith(".png") ||
-              lowerUrl.endsWith(".gif") ||
-              lowerUrl.endsWith(".webp") ||
-              lowerUrl.endsWith(".svg"));
-          let type: "video" | "text" | "document" | "quiz" | "image" = "text";
-          if (tRaw) {
-            if (["video", "vídeo", "youtube", "mp4"].includes(tRaw))
-              type = "video";
-            else if (["image", "imagem", "foto", "photo"].includes(tRaw))
-              type = "image";
-            else if (
-              [
-                "document",
-                "documento",
-                "pdf",
-                "doc",
-                "docx",
-                "ppt",
-                "pptx",
-                "xls",
-                "xlsx",
-                "arquivo",
-                "file",
-              ].includes(tRaw)
-            )
-              type = "document";
-            else if (
-              [
-                "quiz",
-                "questionario",
-                "questionário",
-                "perguntas",
-                "teste",
-              ].includes(tRaw)
-            )
-              type = "quiz";
-            else if (
-              ["text", "texto", "article", "artigo", "post"].includes(tRaw)
-            )
-              type = "text";
-            else if (isVideoUrl) type = "video";
-            else if (isImageUrl) type = "image";
-            else if (isDocUrl || l?.file) type = "document";
-            else type = "text";
-          } else {
-            if (isVideoUrl) type = "video";
-            else if (isImageUrl) type = "image";
-            else if (isDocUrl || l?.file) type = "document";
-            else type = "text";
-          }
+        const isImageUrl =
+          typeof urlCandidate === "string" &&
+          (lowerUrl.endsWith(".jpg") ||
+            lowerUrl.endsWith(".jpeg") ||
+            lowerUrl.endsWith(".png") ||
+            lowerUrl.endsWith(".gif") ||
+            lowerUrl.endsWith(".webp") ||
+            lowerUrl.endsWith(".svg"));
+        let type: "video" | "text" | "document" | "quiz" | "image" = "text";
+        if (tRaw) {
+          if (["video", "vídeo", "youtube", "mp4"].includes(tRaw))
+            type = "video";
+          else if (["image", "imagem", "foto", "photo"].includes(tRaw))
+            type = "image";
+          else if (
+            [
+              "document",
+              "documento",
+              "pdf",
+              "doc",
+              "docx",
+              "ppt",
+              "pptx",
+              "xls",
+              "xlsx",
+              "arquivo",
+              "file",
+            ].includes(tRaw)
+          )
+            type = "document";
+          else if (
+            [
+              "quiz",
+              "questionario",
+              "questionário",
+              "perguntas",
+              "teste",
+            ].includes(tRaw)
+          )
+            type = "quiz";
+          else if (
+            ["text", "texto", "article", "artigo", "post"].includes(tRaw)
+          )
+            type = "text";
+          else if (isVideoUrl) type = "video";
+          else if (isImageUrl) type = "image";
+          else if (isDocUrl || l?.file) type = "document";
+          else type = "text";
+        } else {
+          if (isVideoUrl) type = "video";
+          else if (isImageUrl) type = "image";
+          else if (isDocUrl || l?.file) type = "document";
+          else type = "text";
+        }
         let content = "";
         if (type === "video")
           content = l?.videoUrl ?? l?.url ?? l?.content ?? "";
@@ -964,7 +839,10 @@ const CoursePlayerPage: React.FC = () => {
   // Atribuir aula padrão e abrir primeiro módulo
   useEffect(() => {
     if (allLessons.length > 0 && !isInitialLessonSet) {
-      if (lastLessonIdFromDb && allLessons.some(x => x.lesson.id === lastLessonIdFromDb)) {
+      if (
+        lastLessonIdFromDb &&
+        allLessons.some((x) => x.lesson.id === lastLessonIdFromDb)
+      ) {
         setCurrentLessonId(lastLessonIdFromDb);
       } else if (!currentLessonId) {
         const firstVideo =
@@ -975,35 +853,60 @@ const CoursePlayerPage: React.FC = () => {
       }
       setIsInitialLessonSet(true);
     }
-    
+
     if (openModules.length === 0 && displayModules.length > 0) {
       setOpenModules([displayModules[0]?.id || "0"]);
     }
-  }, [allLessons, currentLessonId, displayModules, openModules.length, lastLessonIdFromDb, isInitialLessonSet]);
+  }, [
+    allLessons,
+    currentLessonId,
+    displayModules,
+    openModules.length,
+    lastLessonIdFromDb,
+    isInitialLessonSet,
+  ]);
+
+  // when the first lesson is assigned, prompt for expectations if not yet collected
+  useEffect(() => {
+    // only prompt once enrollment data has been fetched
+    if (
+      enrollmentLoaded &&
+      isInitialLessonSet &&
+      !expectations &&
+      !showExpectationsModal
+    ) {
+      setShowExpectationsModal(true);
+    }
+  }, [
+    enrollmentLoaded,
+    isInitialLessonSet,
+    expectations,
+    showExpectationsModal,
+  ]);
 
   // Salvar última aula acessada no enrollment
   useEffect(() => {
     if (!id || !user?.uid || !currentLessonId || !isEnrolled) return;
-    
+
     const saveLastLesson = async () => {
-        try {
-            const q = query(
-                collection(db, "enrollments"),
-                where("course_id", "==", id),
-                where("user_uid", "==", user.uid)
-            );
-            const snap = await getDocs(q);
-            snap.forEach(async (d) => {
-                await updateDoc(d.ref, {
-                    last_lesson_id: currentLessonId,
-                    last_accessed: serverTimestamp()
-                });
-            });
-        } catch (err) {
-            console.warn("Erro ao salvar última aula:", err);
-        }
+      try {
+        const q = query(
+          collection(db, "enrollments"),
+          where("course_id", "==", id),
+          where("user_uid", "==", user.uid),
+        );
+        const snap = await getDocs(q);
+        snap.forEach(async (d) => {
+          await updateDoc(d.ref, {
+            last_lesson_id: currentLessonId,
+            last_accessed: serverTimestamp(),
+          });
+        });
+      } catch (err) {
+        console.warn("Erro ao salvar última aula:", err);
+      }
     };
-    
+
     // Debounce de 2 segundos para não sobrecarregar o Firebase
     const timer = setTimeout(saveLastLesson, 2000);
     return () => clearTimeout(timer);
@@ -1296,6 +1199,11 @@ const CoursePlayerPage: React.FC = () => {
     if (idx > 0) setCurrentLessonId(allLessons[idx - 1].lesson.id);
   };
   const goNext = () => {
+    // ensure expectations have been provided before allowing progression
+    if (!expectations) {
+      setShowExpectationsModal(true);
+      return;
+    }
     if (!current) return;
     const idx = allLessons.findIndex((x) => x.lesson.id === current.lesson.id);
     if (idx >= 0 && idx < allLessons.length - 1)
@@ -1315,7 +1223,7 @@ const CoursePlayerPage: React.FC = () => {
             <ChevronLeft className="w-6 h-6" />
           </Link>
           <div className="h-8 w-[1px] bg-gray-200"></div>
-          
+
           <div className="flex flex-col min-w-0">
             <h1
               className="font-black text-[13px] md:text-base truncate max-w-[140px] xs:max-w-[180px] sm:max-w-xs md:max-w-md"
@@ -1336,7 +1244,10 @@ const CoursePlayerPage: React.FC = () => {
                   className="h-full rounded-full transition-all duration-300 shadow-[0_0_8px_rgba(14,112,56,0.3)]"
                 ></div>
               </div>
-              <span className="text-[10px] md:text-xs font-bold" style={{ color: "#0E7038" }}>
+              <span
+                className="text-[10px] md:text-xs font-bold"
+                style={{ color: "#0E7038" }}
+              >
                 {progressPercentage}%
               </span>
             </div>
@@ -1347,25 +1258,27 @@ const CoursePlayerPage: React.FC = () => {
           {/* BOTÃO CONTEÚDOS: Sempre visível, mas etiqueta oculta no mobile para poupar espaço */}
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-xl transition-all duration-300 ${
-              isSidebarOpen 
-                ? "bg-brand-green text-white shadow-md shadow-brand-green/20" 
+            className={`group flex items-center gap-2 px-3 py-2 rounded-xl transition-all duration-300 ${
+              isSidebarOpen
+                ? "bg-brand-green text-white shadow-md shadow-brand-green/20"
                 : "bg-slate-100 text-brand-green hover:bg-brand-green hover:text-white"
             }`}
           >
             <Menu className="w-5 h-5" />
-            <span className="text-xs font-bold uppercase tracking-wider hidden md:inline">
+            <span className="text-xs font-bold uppercase tracking-wider hidden md:inline group-hover:text-white">
               Conteúdos
             </span>
           </button>
 
           {/* Certificado no Mobile: Ícone simples */}
           <button
-            onClick={() => progressPercentage === 100 && setShowCertificateModal(true)}
+            onClick={() =>
+              progressPercentage === 100 && setShowCertificateModal(true)
+            }
             disabled={progressPercentage < 100}
             className={`md:hidden p-2 rounded-xl border transition-all ${
-                progressPercentage === 100 
-                ? "bg-amber-100 border-amber-200 text-amber-600 shadow-sm" 
+              progressPercentage === 100
+                ? "bg-amber-100 border-amber-200 text-amber-600 shadow-sm"
                 : "bg-gray-50 border-gray-100 text-gray-300 opacity-50"
             }`}
           >
@@ -1373,17 +1286,26 @@ const CoursePlayerPage: React.FC = () => {
           </button>
           <div className="hidden md:flex items-center gap-3">
             <button
-              onClick={() =>
-                progressPercentage === 100 && setShowCertificateModal(true)
-              }
-              disabled={progressPercentage < 100}
+              onClick={() => {
+                if (progressPercentage === 100) {
+                  if (finalReview) {
+                    setShowCertificateModal(true);
+                  } else {
+                    showToast(
+                      "Avalie as expectativas antes de emitir o certificado.",
+                      "error",
+                    );
+                  }
+                }
+              }}
+              disabled={progressPercentage < 100 || !finalReview}
               className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors border ${
-                progressPercentage === 100
+                progressPercentage === 100 && finalReview
                   ? "border-2 text-white cursor-pointer"
                   : "border border-gray-300 cursor-not-allowed"
               }`}
               style={
-                progressPercentage === 100
+                progressPercentage === 100 && finalReview
                   ? { backgroundColor: "#0E7038" }
                   : { color: "#9CA3AF" }
               }
@@ -1616,21 +1538,24 @@ const CoursePlayerPage: React.FC = () => {
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
                       target.onerror = null;
-                      target.src = "https://placehold.co/800x600?text=Erro+ao+carregar+imagem";
+                      target.src =
+                        "https://placehold.co/800x600?text=Erro+ao+carregar+imagem";
                     }}
                   />
                   <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/20 to-transparent h-20 opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
                 <div className="p-4 flex items-center justify-between">
-                    <h3 className="font-black text-brand-green/80 text-sm uppercase tracking-wide">Conteúdo Visual</h3>
-                    <a 
-                        href={getDownloadUrl(current.lesson.content)} 
-                        target="_blank" 
-                        rel="noreferrer"
-                        className="px-4 py-2 bg-brand-green/5 text-brand-green text-xs font-black rounded-xl hover:bg-brand-green hover:text-white transition-all uppercase tracking-tighter"
-                    >
-                        Abrir Original
-                    </a>
+                  <h3 className="font-black text-brand-green/80 text-sm uppercase tracking-wide">
+                    Conteúdo Visual
+                  </h3>
+                  <a
+                    href={getDownloadUrl(current.lesson.content)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-4 py-2 bg-brand-green/5 text-brand-green text-xs font-black rounded-xl hover:bg-brand-green hover:text-white transition-all uppercase tracking-tighter"
+                  >
+                    Abrir Original
+                  </a>
                 </div>
               </div>
             </div>
@@ -1639,13 +1564,19 @@ const CoursePlayerPage: React.FC = () => {
               {loading ? (
                 <div className="flex flex-col items-center gap-4">
                   <div className="w-12 h-12 border-4 border-brand-green/20 border-t-brand-green rounded-full animate-spin" />
-                  <p className="text-gray-500 font-medium italic">Preparando sua aula...</p>
+                  <p className="text-gray-500 font-medium italic">
+                    Preparando sua aula...
+                  </p>
                 </div>
               ) : !currentLessonId ? (
                 <div className="flex flex-col items-center">
                   <Play className="w-16 h-16 text-gray-200 mb-4" />
-                  <h2 className="text-xl font-bold text-gray-700">Bem-vindo ao Player</h2>
-                  <p className="text-gray-500">Selecione uma aula na lista ao lado para começar.</p>
+                  <h2 className="text-xl font-bold text-gray-700">
+                    Bem-vindo ao Player
+                  </h2>
+                  <p className="text-gray-500">
+                    Selecione uma aula na lista ao lado para começar.
+                  </p>
                 </div>
               ) : (
                 <div className="animate-in fade-in zoom-in duration-500">
@@ -1656,11 +1587,12 @@ const CoursePlayerPage: React.FC = () => {
                     Objetivo Alcançado!
                   </h2>
                   <p className="text-gray-500 max-w-md mx-auto mb-10 text-lg">
-                    Você concluiu este conteúdo com sucesso. O seu progresso foi guardado e está pronto para o próximo desafio.
+                    Você concluiu este conteúdo com sucesso. O seu progresso foi
+                    guardado e está pronto para o próximo desafio.
                   </p>
                   <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                       {progressPercentage === 100 && (
-                          <button 
+                          <button
                             onClick={() => setShowCertificateModal(true)}
                             className="w-full sm:w-auto px-8 py-3 bg-amber-500 text-white font-black rounded-2xl shadow-xl shadow-amber-500/20 hover:scale-105 transition-all text-sm uppercase tracking-widest"
                           >
@@ -1706,7 +1638,7 @@ const CoursePlayerPage: React.FC = () => {
           {/* Supplementary Materials Section */}
           {(() => {
             const materials: any[] = [];
-            
+
             // Coletar materiais do lesson
             if (current?.lesson) {
               const lesson = current.lesson;
@@ -1756,7 +1688,7 @@ const CoursePlayerPage: React.FC = () => {
             }
 
             // Deduplicate by URL
-            const uniqueMaterials = materials.filter((m, index, self) => 
+            const uniqueMaterials = materials.filter((m, index, self) =>
               index === self.findIndex(t => (t.url || t.link || t.href) === (m.url || m.link || m.href))
             );
 
@@ -1931,7 +1863,7 @@ const CoursePlayerPage: React.FC = () => {
                               </div>
                               <div>
                                 <p
-                                  className={`text-sm font-medium mb-1 ${isActive ? "text-brand-green" : "text-gray-700"}`}
+                                  className={`text-sm font-medium mb-1 ${isActive ? "text-brand-dark" : "text-gray-700"}`}
                                 >
                                   {lesson.title}
                                 </p>
@@ -1984,23 +1916,31 @@ const CoursePlayerPage: React.FC = () => {
 
         {/* Mobile Bottom Navigation */}
         <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-6 py-4 flex items-center justify-between z-40 shadow-[0_-10px_25px_rgba(0,0,0,0.05)]">
-            <button
-                onClick={goPrev}
-                disabled={!current || allLessons.findIndex(x => x.lesson.id === current.lesson.id) === 0}
-                className="flex items-center gap-2 text-sm font-bold text-gray-500 disabled:opacity-20"
-            >
-                <ChevronLeft className="w-5 h-5" />
-                Anterior
-            </button>
-            <div className="h-8 w-px bg-gray-100" />
-            <button
-                onClick={goNext}
-                disabled={!current || allLessons.findIndex(x => x.lesson.id === current.lesson.id) === allLessons.length - 1}
-                className="flex items-center gap-2 text-sm font-black text-brand-green disabled:opacity-20"
-            >
-                Próxima
-                <ChevronRight className="w-5 h-5" />
-            </button>
+          <button
+            onClick={goPrev}
+            disabled={
+              !current ||
+              allLessons.findIndex((x) => x.lesson.id === current.lesson.id) ===
+                0
+            }
+            className="flex items-center gap-2 text-sm font-bold text-gray-500 disabled:opacity-20"
+          >
+            <ChevronLeft className="w-5 h-5" />
+            Anterior
+          </button>
+          <div className="h-8 w-px bg-gray-100" />
+          <button
+            onClick={goNext}
+            disabled={
+              !current ||
+              allLessons.findIndex((x) => x.lesson.id === current.lesson.id) ===
+                allLessons.length - 1
+            }
+            className="flex items-center gap-2 text-sm font-black text-brand-green disabled:opacity-20"
+          >
+            Próxima
+            <ChevronRight className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Toast Notification */}
@@ -2013,6 +1953,103 @@ const CoursePlayerPage: React.FC = () => {
             }`}
           >
             {toast.message}
+          </div>
+        )}
+
+        {/* Expectations Modal: shown at start of course */}
+        {showExpectationsModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl p-6 max-w-lg w-full">
+              <h3 className="text-lg font-bold mb-4">Antes de começar</h3>
+              <p className="text-sm text-gray-600 mb-2">
+                Quais são suas expectativas para este curso? Escreva algumas
+                frases para que possamos acompanhar mais tarde.
+              </p>
+              <textarea
+                className="w-full border border-gray-300 rounded-lg p-3 mb-4"
+                rows={4}
+                value={tempExpectations}
+                onChange={(e) => setTempExpectations(e.target.value)}
+              />
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setShowExpectationsModal(false)}
+                  className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={saveExpectations}
+                  className="px-4 py-2 rounded-lg bg-brand-green text-white hover:bg-brand-dark"
+                >
+                  Salvar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Final review modal shown when course is complete */}
+        {showFinalModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl p-6 max-w-lg w-full">
+              <h3 className="text-lg font-bold mb-4">
+                Você cumpriu as expectativas?
+              </h3>
+              <p className="text-sm text-gray-600 mb-2">
+                Agora que você finalizou o curso, conte-nos se o conteúdo
+                atendeu às suas expectativas.
+              </p>
+              <div className="flex items-center gap-4 mb-4">
+                <button
+                  onClick={() =>
+                    setFinalReview((prev) => ({
+                      met: true,
+                      comments: prev?.comments || "",
+                    }))
+                  }
+                  className="flex-1 px-4 py-2 rounded-lg bg-brand-green text-white hover:bg-brand-dark"
+                >
+                  Sim
+                </button>
+                <button
+                  onClick={() =>
+                    setFinalReview((prev) => ({
+                      met: false,
+                      comments: prev?.comments || "",
+                    }))
+                  }
+                  className="flex-1 px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600"
+                >
+                  Não
+                </button>
+              </div>
+              <textarea
+                className="w-full border border-gray-300 rounded-lg p-3 mb-4"
+                rows={3}
+                placeholder="Comentários adicionais (opcional)"
+                value={finalReview?.comments || ""}
+                onChange={(e) =>
+                  setFinalReview((prev) => ({
+                    met: prev?.met ?? false,
+                    comments: e.target.value,
+                  }))
+                }
+              />
+              <div className="flex justify-end">
+                <button
+                  onClick={() =>
+                    submitFinalReview(
+                      finalReview?.met ?? false,
+                      finalReview?.comments,
+                    )
+                  }
+                  className="px-4 py-2 rounded-lg bg-brand-green text-white hover:bg-brand-dark"
+                >
+                  Enviar avaliação
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -2288,12 +2325,15 @@ const InteractiveQuiz = ({
 
           {(ex.imageUrl || ex.image || ex.img) && (
             <div className="bg-gray-100 p-1">
-                <img 
-                    src={getDownloadUrl(ex.imageUrl || ex.image || ex.img)} 
-                    alt="Imagem do exercício"
-                    className="w-full h-auto max-h-[300px] object-contain rounded-lg"
-                    onError={(e) => { (e.target as any).src = 'https://placehold.co/400x200?text=Imagem+Nao+Encontrada'; }}
-                />
+              <img
+                src={getDownloadUrl(ex.imageUrl || ex.image || ex.img)}
+                alt="Imagem do exercício"
+                className="w-full h-auto max-h-[300px] object-contain rounded-lg"
+                onError={(e) => {
+                  (e.target as any).src =
+                    "https://placehold.co/400x200?text=Imagem+Nao+Encontrada";
+                }}
+              />
             </div>
           )}
 

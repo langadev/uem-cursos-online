@@ -1,7 +1,13 @@
-import React, { useEffect, useState, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+    ChevronLeft,
+    ChevronRight,
+    Headphones,
+    Pause,
+    Play
+} from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useSpeech } from "react-text-to-speech";
-import { ChevronRight, ChevronLeft, Volume2, VolumeX, Play, Pause, SkipForward, Headphones } from "lucide-react";
 
 interface MascotReaderProps {
   content: string;
@@ -29,10 +35,10 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
   // Função para processar markdown simples (bold, itálico, etc)
   const renderFormattedText = (text: string) => {
     // Processar bold (**texto**)
-    const withBold = text.split(/\*\*(.*?)\*\*/).map((part, i) => 
+    const withBold = text.split(/\*\*(.*?)\*\*/).map((part, i) =>
       i % 2 === 0 ? part : <strong key={i} className="font-black text-gray-900">{part}</strong>
     );
-    
+
     // Processar itálico (_texto_)
     const withItalic = withBold.map((part, i) => {
       if (typeof part === 'string') {
@@ -42,7 +48,7 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
       }
       return part;
     });
-    
+
     return withItalic;
   };
 
@@ -60,18 +66,19 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
   // Parse content into slides and bullet points
   const slides = useMemo(() => {
     let raw = content.trim();
+
     if (!raw) return [];
-    
+
     console.log("=== MascotReader Parsing ===");
     console.log("Raw content:", raw.substring(0, 300));
-    
+
     // Try JSON first
     try {
       const parsed = JSON.parse(raw);
       console.log("✓ Parsed as JSON");
       const blocks = Array.isArray(parsed) ? parsed : (parsed.blocks || []);
       console.log("Blocks:", blocks);
-      
+
       if (!Array.isArray(blocks) || blocks.length === 0) {
         throw new Error("No blocks found");
       }
@@ -83,7 +90,7 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
       blocks.forEach((block: any, blockIdx: number) => {
         const type = (block?.type || 'p').toString().toLowerCase();
         const val = block?.value || block?.text || block?.content || block?.url || "";
-        
+
         console.log(`Block ${blockIdx}:`, { type, hasVal: !!val, val: val?.substring(0, 50) });
 
         // Headings create new slides
@@ -91,12 +98,12 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
           if (currentSlide && currentSlide.points.length > 0) {
             slideGroups.push(currentSlide);
           }
-          currentSlide = { 
-            title: val || type.toUpperCase(), 
-            points: [] 
+          currentSlide = {
+            title: val || type.toUpperCase(),
+            points: []
           };
           listCounter = 0;
-        } 
+        }
         // Images
         else if (type === 'image' || type === 'img') {
           if (!currentSlide) currentSlide = { title: "Conteúdo", points: [] };
@@ -105,7 +112,7 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
         // Content blocks (paragraphs, lists, etc)
         else if (val) {
           if (!currentSlide) currentSlide = { title: "Conteúdo", points: [] };
-          
+
           if (type === 'list') {
             listCounter = 0;
             currentSlide.points.push({ text: val, blockType: 'list' });
@@ -134,12 +141,12 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
     console.log("Falling back to text parsing");
     const cleaned = raw.replace(/<a[^>]*>(.*?)<\/a>/gi, "").trim();
     const parts = cleaned.split(/(?:\r?\n){2,}/).filter(p => p.trim());
-    
+
     const slides = parts.map(part => {
       const lines = part.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
       const title = lines[0].startsWith('#') ? lines[0].replace(/^#+\s*/, '') : null;
       const bodyLines = title ? lines.slice(1) : lines;
-      
+
       return {
         title: title || (bodyLines.length > 1 ? "Conteúdo" : ""),
         points: bodyLines.map((line, idx) => ({
@@ -154,7 +161,9 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
     return slides;
   }, [content]);
 
-  const currentSlide: { title: string; points: (string | { type: string; url: string })[] } | undefined = slides[currentSlideIndex];
+  const currentSlide:
+    | { title: string; points: (string | { type: string; url: string })[] }
+    | undefined = slides[currentSlideIndex];
   const textToSpeak = useMemo(() => {
     if (!currentSlide) return "";
     const textPoints = currentSlide.points
@@ -166,17 +175,19 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
       })
       .filter((t) => typeof t === "string" && t.trim().length > 0)
       .join(". ");
-    
+
     // Concatena título e pontos, garantindo clareza na pontuação
     const title = currentSlide.title ? `${currentSlide.title}. ` : "";
     return `${title}${textPoints}`;
   }, [currentSlide]);
   const lastSpokenSlideRef = React.useRef<number>(-1);
-  
+
   const bestVoiceURI = useMemo(() => {
     const ptVoices = systemVoices.filter((v: any) => v.lang.startsWith("pt"));
-    const neural = ptVoices.find((v: any) => /neural|natural|google|microsoft|duarte|fernanda/i.test(v.name));
-    return neural ? neural.voiceURI : (ptVoices[0]?.voiceURI || "");
+    const neural = ptVoices.find((v: any) =>
+      /neural|natural|google|microsoft|duarte|fernanda/i.test(v.name),
+    );
+    return neural ? neural.voiceURI : ptVoices[0]?.voiceURI || "";
   }, [systemVoices]);
 
   const { speechStatus, start, pause, stop } = useSpeech({
@@ -189,22 +200,32 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
   });
 
   const speechRef = React.useRef({ start, stop, pause });
-  useEffect(() => { speechRef.current = { start, stop, pause }; }, [start, stop, pause]);
+  useEffect(() => {
+    speechRef.current = { start, stop, pause };
+  }, [start, stop, pause]);
 
   useEffect(() => {
     if (!hasInteracted) return;
     if (lastSpokenSlideRef.current === currentSlideIndex) return;
-    if (speechRef.current.stop) { try { speechRef.current.stop(); } catch (e) {} }
-    
+    if (speechRef.current.stop) {
+      try {
+        speechRef.current.stop();
+      } catch (e) {}
+    }
+
     const timer = setTimeout(() => {
       if (textToSpeak && speechRef.current.start) {
-        try { 
-          speechRef.current.start(); 
+        try {
+          speechRef.current.start();
           lastSpokenSlideRef.current = currentSlideIndex;
-        } catch (e) { console.error("Speech start failed:", e); }
+        } catch (e) {
+          console.error("Speech start failed:", e);
+        }
       }
     }, 850);
-    return () => { clearTimeout(timer); };
+    return () => {
+      clearTimeout(timer);
+    };
   }, [currentSlideIndex, textToSpeak, hasInteracted]);
 
   const isSpeaking = speechStatus === "started";
@@ -215,22 +236,38 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
       {/* Autoplay Overlay */}
       {!hasInteracted && (
         <div className="absolute inset-0 z-50 bg-[#072d17ef] backdrop-blur-xl flex flex-col items-center justify-center p-8 text-center text-white">
-          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="max-w-md">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="max-w-md"
+          >
             <div className="mb-8 relative">
-               <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }} transition={{ duration: 2, repeat: Infinity }} className="absolute inset-0 bg-brand-green rounded-full blur-3xl" />
-               <Headphones className="w-24 h-24 text-brand-green relative z-10 mx-auto" strokeWidth={1.5} />
+              <motion.div
+                animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }}
+                transition={{ duration: 2, repeat: Infinity }}
+                className="absolute inset-0 bg-brand-green rounded-full blur-3xl"
+              />
+              <Headphones
+                className="w-24 h-24 text-brand-green relative z-10 mx-auto"
+                strokeWidth={1.5}
+              />
             </div>
-            <h2 className="text-4xl font-extrabold mb-4 tracking-tight">Experiência Imersiva</h2>
-            <p className="text-gray-300 mb-10 text-lg font-medium">Toque para iniciar a leitura assistida pelo seu instrutor virtual.</p>
+            <h2 className="text-4xl font-extrabold mb-4 tracking-tight">
+              Experiência Imersiva
+            </h2>
+            <p className="text-gray-300 mb-10 text-lg font-medium">
+              Toque para iniciar a leitura assistida pelo seu instrutor virtual.
+            </p>
             <button
               onClick={() => {
                 setHasInteracted(true);
                 if (textToSpeak && speechRef.current.start) {
-                   speechRef.current.start();
-                   lastSpokenSlideRef.current = currentSlideIndex;
+                  speechRef.current.start();
+                  lastSpokenSlideRef.current = currentSlideIndex;
                 }
               }}
-              className="px-14 py-5 bg-brand-green hover:bg-white hover:text-brand-green text-white font-black text-xl rounded-full shadow-[0_20px_40px_-10px_rgba(14,112,56,0.5)] transition-all active:scale-95 flex items-center gap-4 mx-auto group"
+              // keep the button green on hover and keep text white to avoid disappearing text
+              className="px-14 py-5 bg-brand-green hover:bg-brand-dark text-white font-black text-xl rounded-full shadow-[0_20px_40px_-10px_rgba(14,112,56,0.5)] transition-all active:scale-95 flex items-center gap-4 mx-auto"
             >
               <Play className="w-6 h-6 fill-current" />
               COMECAR AGORA
@@ -243,36 +280,50 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
       <div className="w-full md:w-[32%] bg-[#f0f4f2] p-4 md:p-8 flex flex-row md:flex-col items-center justify-between md:justify-center relative border-b md:border-b-0 md:border-r border-gray-100 overflow-hidden min-h-[120px] md:min-h-0">
         {/* Animated background patterns for the avatar */}
         <div className="absolute inset-0 opacity-30">
-            <motion.div animate={{ rotate: 360 }} transition={{ duration: 25, repeat: Infinity, ease: "linear" }} className="absolute -top-10 -left-10 w-40 h-40 border-[1px] border-brand-green/20 rounded-full" />
-            <motion.div animate={{ rotate: -360 }} transition={{ duration: 20, repeat: Infinity, ease: "linear" }} className="absolute -bottom-10 -right-10 w-48 h-48 border-[1px] border-brand-green/10 rounded-full" />
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
+            className="absolute -top-10 -left-10 w-40 h-40 border-[1px] border-brand-green/20 rounded-full"
+          />
+          <motion.div
+            animate={{ rotate: -360 }}
+            transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+            className="absolute -bottom-10 -right-10 w-48 h-48 border-[1px] border-brand-green/10 rounded-full"
+          />
         </div>
 
         <motion.div
           animate={{
             y: [0, -8, 0],
-            rotate: isSpeaking ? [0, 1, -1, 0] : [0, 0.5, -0.5, 0]
+            rotate: isSpeaking ? [0, 1, -1, 0] : [0, 0.5, -0.5, 0],
           }}
           transition={{
             duration: 5,
             repeat: Infinity,
-            ease: "easeInOut"
+            ease: "easeInOut",
           }}
           className="relative z-10 flex items-center justify-center"
         >
           {/* Speaking frequency bars (mobile optimized) */}
           {isSpeaking && (
             <div className="absolute -bottom-4 md:-bottom-10 left-1/2 -translate-x-1/2 flex gap-0.5 md:gap-1 items-end h-4 md:h-8">
-                {[1, 2, 3, 2, 1].map((h, i) => (
-                    <motion.div 
-                        key={i}
-                        animate={{ height: [`${h*2}px`, `${h*5}px`, `${h*2}px`] }}
-                        transition={{ duration: 0.3, repeat: Infinity, delay: i * 0.05 }}
-                        className="w-1 md:w-1.5 bg-brand-green rounded-full shadow-[0_0_10px_rgba(14,112,56,0.3)]"
-                    />
-                ))}
+              {[1, 2, 3, 2, 1].map((h, i) => (
+                <motion.div
+                  key={i}
+                  animate={{
+                    height: [`${h * 2}px`, `${h * 5}px`, `${h * 2}px`],
+                  }}
+                  transition={{
+                    duration: 0.3,
+                    repeat: Infinity,
+                    delay: i * 0.05,
+                  }}
+                  className="w-1 md:w-1.5 bg-brand-green rounded-full shadow-[0_0_10px_rgba(14,112,56,0.3)]"
+                />
+              ))}
             </div>
           )}
-          
+
           <img
             src={mascotUrl || defaultMascot}
             alt="Mascote"
@@ -281,21 +332,25 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
         </motion.div>
 
         <div className="flex flex-col items-center gap-2 md:mt-16 z-10 relative">
-            <span className="hidden md:inline px-3 py-1 bg-brand-green/10 text-brand-green text-[10px] font-black rounded-full uppercase tracking-widest border border-brand-green/20">Modo Assistido</span>
-            <div className="flex items-center gap-3">
-                <button 
-                    onClick={() => isSpeaking ? (pause && pause()) : (start && start())}
-                    className="w-12 h-12 md:w-16 md:h-16 bg-white rounded-xl md:rounded-2xl shadow-lg border border-gray-100 flex items-center justify-center transition-all active:scale-95 group overflow-hidden"
-                >
-                    <div className="absolute inset-0 bg-brand-green/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    {isSpeaking ? (
-                        <Pause className="w-6 h-6 md:w-8 md:h-8 text-brand-green relative z-10" />
-                    ) : (
-                        <Play className="w-6 h-6 md:w-8 md:h-8 text-brand-green fill-current relative z-10" />
-                    )}
-                </button>
-            </div>
-            <p className="md:hidden text-[9px] font-black text-brand-green/60 uppercase tracking-tighter">Instrutor Virtual</p>
+          <span className="hidden md:inline px-3 py-1 bg-brand-green/10 text-brand-green text-[10px] font-black rounded-full uppercase tracking-widest border border-brand-green/20">
+            Modo Assistido
+          </span>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => (isSpeaking ? pause && pause() : start && start())}
+              className="w-12 h-12 md:w-16 md:h-16 bg-white rounded-xl md:rounded-2xl shadow-lg border border-gray-100 flex items-center justify-center transition-all active:scale-95 group overflow-hidden"
+            >
+              <div className="absolute inset-0 bg-brand-green/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+              {isSpeaking ? (
+                <Pause className="w-6 h-6 md:w-8 md:h-8 text-brand-green relative z-10" />
+              ) : (
+                <Play className="w-6 h-6 md:w-8 md:h-8 text-brand-green fill-current relative z-10" />
+              )}
+            </button>
+          </div>
+          <p className="md:hidden text-[9px] font-black text-brand-green/60 uppercase tracking-tighter">
+            Instrutor Virtual
+          </p>
         </div>
       </div>
 
@@ -339,14 +394,14 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
                 const blockType = typeof point === 'object' ? point.blockType : 'p';
                 const orderNum = typeof point === 'object' ? point.orderNum : i + 1;
                 const pointText = typeof point === 'string' ? point : (point.text || '');
-                
-                console.log("🎭 Point", i, ":", { 
-                  blockType, 
-                  isImage, 
+
+                console.log("🎭 Point", i, ":", {
+                  blockType,
+                  isImage,
                   pointText: pointText?.substring(0, 50),
                   fullPoint: JSON.stringify(point).substring(0, 100)
                 });
-                
+
                 return (
                   <motion.div
                     key={i}
@@ -354,20 +409,23 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.1 }}
                     className={`${
-                      isImage 
-                        ? 'p-1 bg-white border border-gray-100' 
+                      isImage
+                        ? 'p-1 bg-white border border-gray-100'
                         : `p-4 md:p-5 bg-[#f9fafb] border border-gray-50 ${
                             blockType === 'list' || blockType === 'list-ordered' ? 'pl-12 md:pl-14' : ''
                           }`
                     } rounded-xl md:rounded-2xl hover:border-brand-green/30 transition-all hover:shadow-md group relative`}
                   >
                     {isImage ? (
-                        <img 
-                            src={point.url} 
-                            alt={`Imagem ${i+1}`} 
-                            className="w-full h-auto rounded-xl object-contain max-h-[350px]"
-                            onError={(e) => { (e.target as any).src = 'https://placehold.co/400x300?text=Imagem+Nao+Encontrada'; }}
-                        />
+                      <img
+                        src={point.url}
+                        alt={`Imagem ${i + 1}`}
+                        className="w-full h-auto rounded-xl object-contain max-h-[350px]"
+                        onError={(e) => {
+                          (e.target as any).src =
+                            "https://placehold.co/400x300?text=Imagem+Nao+Encontrada";
+                        }}
+                      />
                     ) : (
                         <>
                           {blockType === 'list' && (
@@ -393,47 +451,59 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
 
         {/* Navigation Footer */}
         <div className="p-8 bg-white border-t border-gray-50 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-                <div className="flex -space-x-1">
-                    {[...Array(Math.min(slides.length, 5))].map((_, i) => (
-                        <div key={i} className={`w-2 h-2 rounded-full border border-white ${i <= currentSlideIndex ? 'bg-brand-green' : 'bg-gray-200'}`} />
-                    ))}
+          <div className="flex items-center gap-3">
+            <div className="flex -space-x-1">
+              {[...Array(Math.min(slides.length, 5))].map((_, i) => (
+                <div
+                  key={i}
+                  className={`w-2 h-2 rounded-full border border-white ${i <= currentSlideIndex ? "bg-brand-green text-white" : "bg-gray-200"}`}
+                >
+                  {/* keep potential number visible */}
                 </div>
-                <span className="text-[12px] font-bold text-gray-400">Página {currentSlideIndex + 1} de {slides.length}</span>
+              ))}
             </div>
+            <span className="text-[12px] font-bold text-gray-400">
+              Página {currentSlideIndex + 1} de {slides.length}
+            </span>
+          </div>
 
-            <div className="flex items-center gap-3">
-                <button
-                    onClick={() => setCurrentSlideIndex(p => Math.max(0, p - 1))}
-                    disabled={currentSlideIndex === 0}
-                    className="p-3 rounded-xl border border-gray-200 text-gray-400 hover:text-brand-green disabled:opacity-30 transition-all"
-                >
-                    <ChevronLeft className="w-6 h-6" />
-                </button>
-                <button
-                    onClick={() => {
-                        if (currentSlideIndex < slides.length - 1) setCurrentSlideIndex(p => p + 1);
-                        else onFinished?.();
-                    }}
-                    disabled={isFinishing}
-                    className="flex items-center gap-3 px-8 py-3.5 bg-brand-green text-white font-black rounded-xl hover:shadow-lg shadow-brand-green/20 transition-all active:scale-95 text-xs tracking-widest uppercase disabled:opacity-50 disabled:scale-100"
-                >
-                    {isFinishing ? (
-                        <>Processando...</>
-                    ) : (
-                        <>
-                            {currentSlideIndex === slides.length - 1 ? "Concluir" : "Próximo"}
-                            <ChevronRight className="w-5 h-5" />
-                        </>
-                    )}
-                </button>
-            </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setCurrentSlideIndex((p) => Math.max(0, p - 1))}
+              disabled={currentSlideIndex === 0}
+              className="p-3 rounded-xl border border-gray-200 text-gray-400 hover:text-brand-green disabled:opacity-30 transition-all"
+            >
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+            <button
+              onClick={() => {
+                if (currentSlideIndex < slides.length - 1)
+                  setCurrentSlideIndex((p) => p + 1);
+                else onFinished?.();
+              }}
+              disabled={isFinishing}
+              className="flex items-center gap-3 px-8 py-3.5 bg-brand-green text-white font-black rounded-xl hover:shadow-lg shadow-brand-green/20 transition-all active:scale-95 text-xs tracking-widest uppercase disabled:opacity-50 disabled:scale-100"
+            >
+              {isFinishing ? (
+                <>Processando...</>
+              ) : (
+                <>
+                  {currentSlideIndex === slides.length - 1
+                    ? "Concluir"
+                    : "Próximo"}
+                  <ChevronRight className="w-5 h-5" />
+                </>
+              )}
+            </button>
+          </div>
         </div>
           </>
         )}
       </div>
 
-      <style dangerouslySetInnerHTML={{ __html: `
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         .custom-scrollbar-thin::-webkit-scrollbar {
           width: 4px;
         }
@@ -448,7 +518,9 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
         .custom-scrollbar-thin::-webkit-scrollbar-thumb:hover {
           background: #0E7038;
         }
-      `}} />
+      `,
+        }}
+      />
     </div>
   );
 };
