@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { useSpeech } from "react-text-to-speech";
+import defaultMascot from "/mascot.png";
 
 interface MascotReaderProps {
   content: string;
@@ -16,7 +17,7 @@ interface MascotReaderProps {
   isFinishing?: boolean;
 }
 
-const defaultMascot = "https://cdn-icons-png.flaticon.com/512/4140/4140047.png"; // A more "active" looking avatar
+ // A more "active" looking avatar
 
 export const MascotReader: React.FC<MascotReaderProps> = ({
   content,
