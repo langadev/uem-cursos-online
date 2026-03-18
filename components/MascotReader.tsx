@@ -450,54 +450,6 @@ export const MascotReader: React.FC<MascotReaderProps> = ({
           </AnimatePresence>
         </div>
 
-        {/* Navigation Footer */}
-        <div className="p-8 bg-white border-t border-gray-50 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex -space-x-1">
-              {[...Array(Math.min(slides.length, 5))].map((_, i) => (
-                <div
-                  key={i}
-                  className={`w-2 h-2 rounded-full border border-white ${i <= currentSlideIndex ? "bg-brand-green text-white" : "bg-gray-200"}`}
-                >
-                  {/* keep potential number visible */}
-                </div>
-              ))}
-            </div>
-            <span className="text-[12px] font-bold text-gray-400">
-              Página {currentSlideIndex + 1} de {slides.length}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setCurrentSlideIndex((p) => Math.max(0, p - 1))}
-              disabled={currentSlideIndex === 0}
-              className="p-3 rounded-xl border border-gray-200 text-gray-400 hover:text-brand-green disabled:opacity-30 transition-all"
-            >
-              <ChevronLeft className="w-6 h-6" />
-            </button>
-            <button
-              onClick={() => {
-                if (currentSlideIndex < slides.length - 1)
-                  setCurrentSlideIndex((p) => p + 1);
-                else onFinished?.();
-              }}
-              disabled={isFinishing}
-              className="flex items-center gap-3 px-8 py-3.5 bg-brand-green text-white font-black rounded-xl hover:shadow-lg shadow-brand-green/20 transition-all active:scale-95 text-xs tracking-widest uppercase disabled:opacity-50 disabled:scale-100"
-            >
-              {isFinishing ? (
-                <>Processando...</>
-              ) : (
-                <>
-                  {currentSlideIndex === slides.length - 1
-                    ? "Concluir"
-                    : "Próximo"}
-                  <ChevronRight className="w-5 h-5" />
-                </>
-              )}
-            </button>
-          </div>
-        </div>
           </>
         )}
       </div>

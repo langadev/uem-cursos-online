@@ -1605,7 +1605,7 @@ const CoursePlayerPage: React.FC = () => {
             </div>
           )}
 
-          {/* Controls & Tabs */}
+          
           <div className="max-w-5xl mx-auto p-6 md:p-8">
             {/* Lesson Navigation - Buttons Only */}
             <div className="flex items-center justify-end gap-3 mb-8 pb-8 border-b border-gray-200">
@@ -1634,6 +1634,7 @@ const CoursePlayerPage: React.FC = () => {
                 </button>
               </div>
             </div>
+
 
           {/* Supplementary Materials Section */}
           {(() => {
